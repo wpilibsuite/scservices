@@ -9,15 +9,19 @@
 #include <wpinet/uv/Timer.h>
 #include <wpinet/uv/Tcp.h>
 #include "wpinet/HttpUtil.h"
+#include "wpinet/ParallelTcpConnector.h"
+#include "wpi/Logger.h"
 
 #include "networktables/NetworkTableInstance.h"
 #include "networktables/StringTopic.h"
 #include "wpi/StringExtras.h"
 
 struct DataStorage {
+    wpi::Logger logger;
     nt::StringSubscriber teamSubscriber;
 
-    std::shared_ptr<wpi::uv::Tcp> tcpConn;
+    std::shared_ptr<wpi::ParallelTcpConnector> tcpConnector;
+    std::weak_ptr<wpi::uv::Tcp> tcpConn;
     std::optional<uint16_t> oldTeamNumber;
 };
 
@@ -71,31 +75,27 @@ int main() {
     return 0;
 }
 
-static std::optional<uint16_t> checkTeamNumber(DataStorage& instData) {
-    auto teamStr = instData.teamSubscriber.Get();
-    auto maybeTeam = wpi::parse_integer<uint16_t>(teamStr, 10);
-    if (!maybeTeam.has_value()) {
-        printf("failed to parse team number\n");
-        return {};
-    }
+// static std::optional<uint16_t> checkTeamNumber(DataStorage& instData) {
+//     auto teamStr = instData.teamSubscriber.Get();
+//     auto maybeTeam = wpi::parse_integer<uint16_t>(teamStr, 10);
+//     if (!maybeTeam.has_value()) {
+//         printf("failed to parse team number\n");
+//         return {};
+//     }
 
-    auto team = *maybeTeam;
+//     auto team = *maybeTeam;
 
-    if (team > 25599) {
-        printf("Team number too large\n");
-        return {};
-    }
+//     if (team > 25599) {
+//         printf("Team number too large\n");
+//         return {};
+//     }
 
-    return team;
-}
+//     return team;
+// }
 
-static void handleNewConnection(wpi::uv::Loop& loop, DataStorage& instData) {
-    auto tcp = wpi::uv::Tcp::Create(loop, 0);
+// static void tryRequest(wpi::uv::Loop& loop, DataStorage& instData) {
 
-    tcp->error.connect
-}
-
-static void handleTeamUpdate(wpi::uv::Loop& loop, DataStorage& instData) {}
+// }
 
 static bool startUvLoop(wpi::uv::Loop& loop, DataStorage& instData) {
     auto timer = wpi::uv::Timer::Create(loop);
@@ -103,43 +103,52 @@ static bool startUvLoop(wpi::uv::Loop& loop, DataStorage& instData) {
         return false;
     }
 
-    timer->timeout.connect([&loop, &instData] {
-        auto maybeTeam = checkTeamNumber(instData);
-        if (!maybeTeam.has_value()) {
-            instData.oldTeamNumber = maybeTeam;
-            return;
-        }
+    // instData.tcpConnector = wpi::ParallelTcpConnector::Create(
+    //     loop, wpi::uv::Timer::Time{2000}, instData.logger,
+    //     [](wpi::uv::Tcp& tcp) {
+    //     },
+    //     true);
 
-        if (maybeTeam != instData.oldTeamNumber) {
-            // New team number.
-            instData.oldTeamNumber = maybeTeam;
-            // Restart TCP if it exists.
+    // if (!instData.tcpConnector) {
+    //     return false;
+    // }
 
-            if (instData.tcpConn) {
-                instData.tcpConn->Shutdown();
-                instData.tcpConn->Close();
-                instData.tcpConn = nullptr;
-            }
+    // timer->timeout.connect([&loop, &instData] {
+    //     auto maybeTeam = checkTeamNumber(instData);
+    //     if (!maybeTeam.has_value()) {
+    //         instData.oldTeamNumber = maybeTeam;
+    //         return;
+    //     }
 
-            handleNewConnection(loop, instData);
-            return;
-        }
+    //     if (maybeTeam != instData.oldTeamNumber) {
+    //         // New team number.
+    //         instData.oldTeamNumber = maybeTeam;
+    //         // Restart TCP if it exists.
 
-        handleTeamUpdate(loop, instData);
+    //         std::array<std::pair<std::string, unsigned int>, 1> servers;
+    //         servers[0] = {"localhost", 80};
 
-        //    fmt::format("10.{}.{}.1", static_cast<int>(team / 100),
-        //                static_cast<int>(team % 100));
+    //         instData.tcpConnector->SetServers(servers);
+    //         instData.tcpConnector->Disconnected();
 
-        //     auto tcp = wpi::uv::Tcp::Create(loop, 0);
-        //     if (!tcp) {
-        //         printf("Failed to allocate tcp\n");
-        //         return;
-        //     }
+    //         return;
+    //     }
 
-        //     tcp->Reuse
-    });
+    //     tryRequest(loop, instData);
 
-    timer->Start(wpi::uv::Timer::Time{100}, wpi::uv::Timer::Time{3000});
+    //     //    fmt::format("10.{}.{}.1", static_cast<int>(team / 100),
+    //     //                static_cast<int>(team % 100));
+
+    //     //     auto tcp = wpi::uv::Tcp::Create(loop, 0);
+    //     //     if (!tcp) {
+    //     //         printf("Failed to allocate tcp\n");
+    //     //         return;
+    //     //     }
+
+    //     //     tcp->Reuse
+    // });
+
+    // timer->Start(wpi::uv::Timer::Time{100}, wpi::uv::Timer::Time{3000});
 
     return true;
 }
