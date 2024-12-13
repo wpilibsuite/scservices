@@ -1,0 +1,59 @@
+name: Sanitizers
+
+on: [pull_request, push]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+# env:
+#   SCCACHE_WEBDAV_ENDPOINT: "https://frcmaven.wpi.edu/artifactory/wpilib-generic-cache-cmake-local"
+#   SCCACHE_WEBDAV_KEY_PREFIX: "sccache"
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: asan
+            cmake-flags: "-DCMAKE_BUILD_TYPE=Asan"
+            ctest-env: ""
+          - name: tsan
+            cmake-flags: "-DCMAKE_BUILD_TYPE=Tsan"
+            ctest-env: "TSAN_OPTIONS=second_deadlock_stack=1"
+          - name: ubsan
+            cmake-flags: "-DCMAKE_BUILD_TYPE=Ubsan"
+            ctest-env: ""
+            ctest-flags: ""
+    name: "${{ matrix.name }}"
+    runs-on: ubuntu-24.04
+    container: wpilib/ubuntu-base:24.04
+    steps:
+      - name: Install Dependencies
+        run: sudo apt-get update && sudo apt-get install -y clang-18 ninja-build
+
+      # - name: Install sccache
+      #   uses: mozilla-actions/sccache-action@v0.0.5
+
+      - run: git config --global --add safe.directory "$PWD"
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+
+      - name: configure
+        run: cmake --preset default -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache -DCMAKE_C_COMPILER:FILEPATH=/usr/bin/clang-14 -DCMAKE_CXX_COMPILER:FILEPATH=/usr/bin/clang++-14 ${{ matrix.cmake-flags }}
+        # env:
+        #   SCCACHE_WEBDAV_USERNAME: ${{ secrets.ARTIFACTORY_USERNAME }}
+        #   SCCACHE_WEBDAV_PASSWORD: ${{ secrets.ARTIFACTORY_PASSWORD }}
+
+      - name: build
+        run: cmake --build --preset default --parallel $(nproc)
+        # env:
+        #   SCCACHE_WEBDAV_USERNAME: ${{ secrets.ARTIFACTORY_USERNAME }}
+        #   SCCACHE_WEBDAV_PASSWORD: ${{ secrets.ARTIFACTORY_PASSWORD }}
+
+      - name: test
+        working-directory: build
+        run: ${{ matrix.ctest-env }} ctest --output-on-failure

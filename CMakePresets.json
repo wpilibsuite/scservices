@@ -1,0 +1,48 @@
+{
+    "version": 3,
+    "configurePresets": [
+      {
+        "name": "common",
+        "hidden": true,
+        "binaryDir": "${sourceDir}/build",
+        "cacheVariables": {
+          "CMAKE_BUILD_TYPE": "RelWithDebInfo"
+        }
+      },
+      {
+        "name": "msvc",
+        "inherits": "common",
+        "generator": "Visual Studio 17 2022"
+      },
+      {
+        "name": "default",
+        "inherits": "common",
+        "generator": "Ninja"
+      },
+      {
+        "name": "mrc",
+        "binaryDir": "${sourceDir}/buildmrc",
+        "inherits": "default",
+        "cacheVariables": {
+          "MRC_BUILD": true
+        }
+      }
+    ],
+    "buildPresets": [
+      {
+        "name": "msvc",
+        "configurePreset": "msvc",
+        "configuration": "RelWithDebInfo"
+      },
+      {
+        "name": "default",
+        "configurePreset": "default",
+        "configuration": "RelWithDebInfo"
+      },
+      {
+        "name": "mrc",
+        "configurePreset": "mrc",
+        "configuration": "RelWithDebInfo"
+      }
+    ]
+  }

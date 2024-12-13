@@ -1,0 +1,9 @@
+build/
+buildmrc/
+buildninja/
+vcpkg_installed/
+*.wpilog
+networktables.json
+builddroidarm/
+builddroidx64/
+install/

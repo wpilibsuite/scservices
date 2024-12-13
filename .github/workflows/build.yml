@@ -1,0 +1,73 @@
+name: Build
+
+on: [pull_request, push, workflow_dispatch]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+# env:
+#   SCCACHE_WEBDAV_ENDPOINT: "https://frcmaven.wpi.edu/artifactory/wpilib-generic-cache-cmake-local"
+#   SCCACHE_WEBDAV_KEY_PREFIX: "sccache"
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            name: Linux
+            runtests: true
+            container: wpilib/ubuntu-base:24.04
+            preset: default
+            builddir: build
+            flags: ""
+          - os: ubuntu-24.04
+            name: Linux MRC
+            runtests: false
+            container: wpilib/systemcore-cross-ubuntu:2025-24.04
+            builddir: buildmrc
+            flags: "-DCMAKE_TOOLCHAIN_FILE=/usr/local/toolchain-config.cmake"
+            preset: mrc
+
+    name: "Build - ${{ matrix.name }}"
+    runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container }}
+    steps:
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - run: git config --global --add safe.directory "$PWD"
+
+      # - name: Install sccache
+      #   uses: mozilla-actions/sccache-action@v0.0.5
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+
+      - name: configure
+        run: cmake --preset ${{ matrix.preset }} -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache ${{ matrix.flags }}
+        # env:
+        #   SCCACHE_WEBDAV_USERNAME: ${{ secrets.ARTIFACTORY_USERNAME }}
+        #   SCCACHE_WEBDAV_PASSWORD: ${{ secrets.ARTIFACTORY_PASSWORD }}
+
+      - name: build
+        run: cmake --build --preset ${{ matrix.preset }} --parallel $(nproc)
+        # env:
+        #   SCCACHE_WEBDAV_USERNAME: ${{ secrets.ARTIFACTORY_USERNAME }}
+        #   SCCACHE_WEBDAV_PASSWORD: ${{ secrets.ARTIFACTORY_PASSWORD }}
+
+      - name: install
+        run: cmake --install ${{ matrix.builddir }} --prefix install/${{ matrix.builddir }}
+        # env:
+        #   SCCACHE_WEBDAV_USERNAME: ${{ secrets.ARTIFACTORY_USERNAME }}
+        #   SCCACHE_WEBDAV_PASSWORD: ${{ secrets.ARTIFACTORY_PASSWORD }}
+
+      - name: test
+        if: matrix.runtests == true
+        working-directory: build
+        run: ctest --output-on-failure
