@@ -1,4 +1,5 @@
 {
+    "java.import.gradle.enabled": false,
     "files.associations": {
         "filesystem": "cpp",
         "xlocale": "cpp",
