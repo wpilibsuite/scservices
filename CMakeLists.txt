@@ -93,12 +93,12 @@ add_subdirectory(common)
 add_subdirectory(radio)
 
 if (MRC_BUILD)
-add_subdirectory(powerdistribution)
+add_subdirectory(kitcan)
 endif()
 
 if (MRC_BUILD)
 install(
-    TARGETS RadioDaemon PowerDistributionDaemon
+    TARGETS RadioDaemon KitCanDaemon
     RUNTIME DESTINATION bin
     LIBRARY DESTINATION lib
     ARCHIVE DESTINATION lib
