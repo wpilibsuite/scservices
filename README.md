@@ -6,9 +6,9 @@ Currently, allwpilib is a submodule for all builds. However eventually we plan o
 
 ## Services
 
-### Power Distribution
+### KitCan
 
-This service reads the Power Distribution can data, and sends that data to the DS service. That service then sends the data to the DS allowing integrated logging.
+This service reads the Power Distribution and Pnequmatics can data, and sends that data to the DS service. That service then sends the data to the DS allowing integrated logging and version reporting.
 
 ### Radio
 
