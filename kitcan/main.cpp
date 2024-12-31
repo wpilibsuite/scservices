@@ -17,6 +17,7 @@
 #include "networktables/RawTopic.h"
 #include "networktables/IntegerTopic.h"
 #include "networktables/StringArrayTopic.h"
+#include "networktables/BooleanTopic.h"
 
 #define NUM_CAN_BUSES 5
 
@@ -27,20 +28,16 @@ static constexpr uint32_t manufacturerMask = 0x00FF0000;
 static constexpr uint32_t ctreFilter = 0x00040000;
 static constexpr uint32_t revFilter = 0x00050000;
 
-struct SendVersionStore {
-    uint8_t ctrepcm : 1;
-    uint8_t ctrepdh : 1;
-    uint8_t revpdh : 1;
-    uint8_t revph : 1;
-    uint8_t reserved : 4;
-};
+constexpr uint32_t revPhVersionPacketMask = 0x09052600;
+constexpr uint32_t revPhAnyPacketMask = 0x09050000;
+constexpr uint32_t revPdhVersionPacketMask = 0x08052600;
 
 struct CanState {
     int socketHandle{-1};
     nt::IntegerPublisher deviceIdPublisher;
     std::array<nt::RawPublisher, 4> framePublishers;
     nt::StringArrayPublisher versionPublisher;
-    std::array<SendVersionStore, 64> sentVersions{0, 0, 0, 0, 0};
+    std::unordered_map<uint32_t, std::string> sentVersions;
     unsigned busId{0};
 
     ~CanState() {
@@ -49,9 +46,9 @@ struct CanState {
         }
     }
 
-    void maybeSendRevVersionRequest(uint8_t deviceId, bool isPower);
+    void maybeSendVersionRequest(uint32_t canId);
 
-    void handleRevVersionFrame(const canfd_frame& frame, bool isPower);
+    void handleRevVersionFrame(const canfd_frame& frame);
 
     void handleCanFrame(const canfd_frame& frame);
     void handlePowerFrame(const canfd_frame& frame);
@@ -60,68 +57,57 @@ struct CanState {
                      wpi::uv::Loop& loop);
 };
 
-void CanState::maybeSendRevVersionRequest(uint8_t deviceId, bool isPower) {
-    if (deviceId > 63) {
+void CanState::maybeSendVersionRequest(uint32_t canId) {
+    auto& sent = sentVersions[canId];
+    if (!sent.empty()) {
         return;
     }
-
-    if (isPower && sentVersions[deviceId].revpdh) {
-        return;
-    } else if (!isPower && sentVersions[deviceId].revph) {
-        return;
-    }
-
-    constexpr uint32_t pneumaticsRequest = 0x09052600;
-    constexpr uint32_t powerRequest = 0x08052600;
 
     canfd_frame frame;
     memset(&frame, 0, sizeof(frame));
-    frame.can_id = deviceId | CAN_EFF_FLAG | CAN_RTR_FLAG;
-    frame.can_id |= isPower ? powerRequest : pneumaticsRequest;
+    frame.can_id = canId | CAN_EFF_FLAG | CAN_RTR_FLAG;
     frame.len = 8;
+
+    printf("Requesting %x version frame\n", canId);
 
     send(socketHandle, &frame, CAN_MTU, 0);
 }
 
-void CanState::handleRevVersionFrame(const canfd_frame& frame, bool isPower) {
+void CanState::handleRevVersionFrame(const canfd_frame& frame) {
     if (frame.len < 8) {
         return;
     }
 
-    uint8_t year = frame.data[0];
+    uint8_t year = frame.data[2];
     uint8_t minor = frame.data[1];
-    uint8_t fix = frame.data[2];
+    uint8_t fix = frame.data[0];
 
-    uint8_t deviceId = (frame.can_id & 0x3F);
-
-    uint16_t deviceBusCombined = busId << 8 | deviceId;
+    uint32_t frameId = frame.can_id & CAN_EFF_MASK;
 
     char buf[32];
     snprintf(buf, sizeof(buf), "%u.%u.%u", year, minor, fix);
 
     std::array<std::string, 3> sendData;
-    sendData[0] = std::to_string(deviceBusCombined);
-    sendData[1] = isPower ? "RevPH" : "RevPDH";
+    sendData[0] = std::to_string(frameId);
+    sendData[1] = ((frame.can_id & deviceTypeMask) == pneumaticsFilter)
+                      ? "Rev PH"
+                      : "Rev PDH";
     sendData[2] = buf;
+
+    fmt::print("Setting {:x} {} {}\n", frameId, sendData[1], sendData[2]);
 
     versionPublisher.Set(sendData);
 
-    if (isPower) {
-        sentVersions[deviceId].revpdh = 1;
-    } else {
-        sentVersions[deviceId].revph = 1;
-    }
+    sentVersions[frameId] = buf;
 }
 
 void CanState::handlePneumaticsFrame(const canfd_frame& frame) {
     // The only thing we're doing with pneumatics is version receiving.
-    constexpr uint32_t revPhVersionPacketMask = 0x09052600;
-    constexpr uint32_t revPhAnyPacketMask = 0x09050000;
 
     if ((frame.can_id & revPhVersionPacketMask) == revPhVersionPacketMask) {
-        handleRevVersionFrame(frame, false);
+        handleRevVersionFrame(frame);
     } else if ((frame.can_id & revPhAnyPacketMask) == revPhAnyPacketMask) {
-        maybeSendRevVersionRequest(frame.can_id & 0x3F, false);
+        maybeSendVersionRequest(revPhVersionPacketMask | (frame.can_id & 0x3F));
     }
 }
 
@@ -152,14 +138,14 @@ void CanState::handlePowerFrame(const canfd_frame& frame) {
         // Rev Frame
         if (apiId == 0x98) {
             // Version frame
-            handleRevVersionFrame(frame, true);
+            handleRevVersionFrame(frame);
             return;
         } else if (apiId < 0x60 || apiId > 0x63) {
             // Not valid
             return;
         }
 
-        maybeSendRevVersionRequest(frame.can_id & 0x3F, true);
+        maybeSendVersionRequest(revPdhVersionPacketMask | (deviceId & 0x3F));
 
         frameNum = apiId - 0x60;
     } else {
@@ -217,7 +203,7 @@ bool CanState::startUvLoop(unsigned bus, const nt::NetworkTableInstance& ntInst,
         ntInst.GetIntegerTopic("/pd/" + busIdStr + "/deviceid").Publish();
 
     versionPublisher =
-        ntInst.GetStringArrayTopic("/Netcomm/Reporting/LibVersionStr")
+        ntInst.GetStringArrayTopic("/Netcomm/Reporting/UserVersionStr")
             .Publish(options);
 
     socketHandle =
@@ -293,7 +279,7 @@ bool CanState::startUvLoop(unsigned bus, const nt::NetworkTableInstance& ntInst,
 }
 
 int main() {
-    printf("Starting PowerDistributionDaemon\n");
+    printf("Starting KitCanDaemon\n");
     printf("\tBuild Hash: %s\n", MRC_GetGitHash());
     printf("\tBuild Timestamp: %s\n", MRC_GetBuildTimestamp());
 
