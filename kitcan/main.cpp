@@ -295,7 +295,7 @@ int main() {
 
     auto ntInst = nt::NetworkTableInstance::Create();
     ntInst.SetServer({"localhost"}, 6810);
-    ntInst.StartClient4("PowerDistributionDaemon");
+    ntInst.StartClient("KitCanDaemon");
 
     wpi::EventLoopRunner loopRunner;
 
