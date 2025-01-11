@@ -42,7 +42,7 @@ int main() {
 
     auto ntInst = nt::NetworkTableInstance::Create();
     ntInst.SetServer({"localhost"}, 6810);
-    ntInst.StartClient4("RadioDaemon");
+    ntInst.StartClient("RadioDaemon");
 
     DataStorage instData;
 
