@@ -33,6 +33,7 @@ constexpr uint32_t revPhAnyPacketMask = 0x09050000;
 constexpr uint32_t revPdhVersionPacketMask = 0x08052600;
 
 struct CanState {
+    wpi::mutex sendVersionsMutex;
     int socketHandle{-1};
     nt::IntegerPublisher deviceIdPublisher;
     std::array<nt::RawPublisher, 4> framePublishers;
@@ -49,6 +50,7 @@ struct CanState {
     void maybeSendVersionRequest(uint32_t canId);
 
     void handleRevVersionFrame(const canfd_frame& frame);
+    void sendVersions();
 
     void handleCanFrame(const canfd_frame& frame);
     void handlePowerFrame(const canfd_frame& frame);
@@ -56,6 +58,29 @@ struct CanState {
     bool startUvLoop(unsigned bus, const nt::NetworkTableInstance& ntInst,
                      wpi::uv::Loop& loop);
 };
+
+void CanState::sendVersions() {
+    std::scoped_lock lock{sendVersionsMutex};
+
+    for (auto&& versions : sentVersions) {
+        if (versions.first == 0 || versions.second.empty()) {
+            continue;
+        }
+
+        uint32_t frameId = versions.first;
+
+        std::array<std::string, 3> sendData;
+        sendData[0] = std::to_string(frameId);
+        sendData[1] = ((frameId & deviceTypeMask) == pneumaticsFilter)
+                          ? "Rev PH"
+                          : "Rev PDH";
+        sendData[2] = versions.second;
+
+        fmt::print("Setting {:x} {} {}\n", frameId, sendData[1], sendData[2]);
+
+        versionPublisher.Set(sendData);
+    }
+}
 
 void CanState::maybeSendVersionRequest(uint32_t canId) {
     auto& sent = sentVersions[canId];
@@ -87,17 +112,7 @@ void CanState::handleRevVersionFrame(const canfd_frame& frame) {
     char buf[32];
     snprintf(buf, sizeof(buf), "%u.%u.%u", year, minor, fix);
 
-    std::array<std::string, 3> sendData;
-    sendData[0] = std::to_string(frameId);
-    sendData[1] = ((frame.can_id & deviceTypeMask) == pneumaticsFilter)
-                      ? "Rev PH"
-                      : "Rev PDH";
-    sendData[2] = buf;
-
-    fmt::print("Setting {:x} {} {}\n", frameId, sendData[1], sendData[2]);
-
-    versionPublisher.Set(sendData);
-
+    std::scoped_lock lock{sendVersionsMutex};
     sentVersions[frameId] = buf;
 }
 
@@ -297,6 +312,10 @@ int main() {
     ntInst.SetServer({"localhost"}, 6810);
     ntInst.StartClient("KitCanDaemon");
 
+    nt::IntegerSubscriber requestSubscriber =
+        ntInst.GetIntegerTopic("/Netcomm/Reporting/RequestVersions")
+            .Subscribe(0);
+
     wpi::EventLoopRunner loopRunner;
 
     bool success = false;
@@ -308,6 +327,14 @@ int main() {
             }
         }
     });
+
+    NT_Listener requestListener =
+        ntInst.AddListener(requestSubscriber, NT_EVENT_VALUE_REMOTE,
+                           [&states, &loopRunner](const nt::Event& event) {
+                               for (size_t i = 0; i < states.size(); i++) {
+                                   states[i].sendVersions();
+                               }
+                           });
 
     if (!success) {
         loopRunner.Stop();
@@ -322,6 +349,7 @@ int main() {
         (void)getchar();
 #endif
     }
+    ntInst.RemoveListener(requestListener);
     ntInst.StopClient();
     nt::NetworkTableInstance::Destroy(ntInst);
 
