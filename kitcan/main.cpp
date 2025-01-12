@@ -310,7 +310,7 @@ int main() {
 
     auto ntInst = nt::NetworkTableInstance::Create();
     ntInst.SetServer({"localhost"}, 6810);
-    ntInst.StartClient4("PowerDistributionDaemon");
+    ntInst.StartClient("KitCanDaemon");
 
     nt::IntegerSubscriber requestSubscriber =
         ntInst.GetIntegerTopic("/Netcomm/Reporting/RequestVersions")
