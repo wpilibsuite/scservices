@@ -100,6 +100,10 @@
         "xtree": "cpp",
         "xutility": "cpp",
         "*.tcc": "cpp",
-        "string_view": "cpp"
+        "string_view": "cpp",
+        "codecvt": "cpp",
+        "module.h": "c",
+        "serial.h": "c",
+        "termios.h": "c"
     }
 }

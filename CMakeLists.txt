@@ -94,11 +94,12 @@ add_subdirectory(radio)
 
 if (MRC_BUILD)
 add_subdirectory(powerdistribution)
+add_subdirectory(expansionhub)
 endif()
 
 if (MRC_BUILD)
 install(
-    TARGETS RadioDaemon PowerDistributionDaemon
+    TARGETS RadioDaemon PowerDistributionDaemon ExpansionHubDaemon
     RUNTIME DESTINATION bin
     LIBRARY DESTINATION lib
     ARCHIVE DESTINATION lib
