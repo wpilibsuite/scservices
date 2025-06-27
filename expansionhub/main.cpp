@@ -38,6 +38,21 @@
 #include "ReceiveStateMachine.h"
 #include "MessageNumbers.h"
 
+struct robot_state {
+    uint8_t tournament_type;  // 3 bits
+    uint8_t system_watchdog;  // 1 bit
+    uint8_t test_mode;        // 1 bit
+    uint8_t autonomous;       // 1 bit
+    uint8_t enabled;          // 1 bit
+    uint8_t red_alliance;     // 1 bit
+    uint8_t replay_number;    // 6 bits
+    uint16_t match_number;    // 10 bits
+    uint16_t
+        match_time_seconds;  // 8 bits to CAN, 16 bits to other sysfs consumers
+};
+
+#define CONTROL_DATA_PATH "/sys/kernel/can_heartbeat/controldataro"
+
 #define NUM_USB_BUSES 4
 #define NUM_MOTORS_PER_HUB 4
 #define NUM_SERVOS_PER_HUB 6
@@ -543,7 +558,7 @@ struct ExpansionHubState {
         }
     }
 
-    void onUpdate();
+    void onUpdate(bool canEnable);
 
     bool startUvLoop(unsigned bus, const nt::NetworkTableInstance& ntInst,
                      wpi::uv::Loop& loop);
@@ -575,7 +590,7 @@ void ExpansionHubState::onDeviceRemoved(std::string_view path) {
     }
 }
 
-void ExpansionHubState::onUpdate() {
+void ExpansionHubState::onUpdate(bool canEnable) {
     if (!currentHub) {
         return;
     }
@@ -633,14 +648,14 @@ void ExpansionHubState::onUpdate() {
     // sending in case of reset.
     for (int i = 0; i < NUM_MOTORS_PER_HUB; i++) {
         currentHub->SendMotorMode(i);
-        currentHub->SendMotorEnable(i, true);
+        currentHub->SendMotorEnable(i, canEnable);
     }
 
     for (int i = 0; i < NUM_SERVOS_PER_HUB; i++) {
         currentHub->SendServoConfiguration(
             i, servoFramePeriodSubscribers[i].Get(20000));
 
-        currentHub->SendServoEnable(i, servoEnabledSubscribers[i].Get(false));
+        currentHub->SendServoEnable(i, canEnable ? servoEnabledSubscribers[i].Get(false) : false);
     }
 
     currentHub->Flush();
@@ -840,6 +855,21 @@ int main() {
     sigprocmask(SIG_BLOCK, &signal_set, nullptr);
 #endif
 
+    int retries = 0;
+    int control_data_fd = -1;
+    while (control_data_fd == -1 && retries < 50) {
+        control_data_fd = open(CONTROL_DATA_PATH, O_RDONLY);
+        if (control_data_fd == -1) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(250));
+            retries++;
+        }
+    }
+
+    if (control_data_fd == -1) {
+        printf("Failed to open control data.\n");
+        return -1;
+    }
+
     std::array<ExpansionHubState, NUM_USB_BUSES> states;
 
     auto ntInst = nt::NetworkTableInstance::Create();
@@ -858,7 +888,7 @@ int main() {
 
     bool success = false;
     loopRunner.ExecSync([&success, &states, &loopStorage,
-                         &ntInst](wpi::uv::Loop& loop) {
+                         &ntInst, control_data_fd](wpi::uv::Loop& loop) {
         loopStorage.loop = &loop;
         for (size_t i = 0; i < states.size(); i++) {
             success = states[i].startUvLoop(i, ntInst, loop);
@@ -939,10 +969,22 @@ int main() {
 
         auto sendTimer = wpi::uv::Timer::Create(loop);
 
-        sendTimer->timeout.connect([&states]() {
-            // printf("send?\n");
+        sendTimer->timeout.connect([&states, control_data_fd]() {
+            char buf[128];
+
+            struct robot_state state;
+            memset(&state, 0, sizeof(state));
+
+            ssize_t control_data_size = pread(control_data_fd, buf, sizeof(buf), 0);
+
+            buf[control_data_size] = '\0';
+
+            unsigned int control_data  = strtol(buf, NULL, 16);
+
+            bool system_watchdog = (control_data & 0x1) != 0 ? true : false;
+
             for (auto&& dev : states) {
-                dev.onUpdate();
+                dev.onUpdate(system_watchdog);
             }
         });
 
@@ -967,6 +1009,7 @@ int main() {
 
     if (!success) {
         loopRunner.Stop();
+        close(control_data_fd);
         return -1;
     }
 
@@ -980,6 +1023,9 @@ int main() {
     }
     ntInst.StopClient();
     nt::NetworkTableInstance::Destroy(ntInst);
+
+    loopRunner.Stop();
+    close(control_data_fd);
 
     return 0;
 }
