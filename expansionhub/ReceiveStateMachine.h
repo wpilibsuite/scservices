@@ -7,9 +7,13 @@
 namespace eh {
 class ReceiveStateMachine {
    public:
-    ReceiveStateMachine(std::function<void(std::span<const uint8_t>)>
-                            onPacket)
+    ReceiveStateMachine(std::function<void(std::span<const uint8_t>)> onPacket)
         : _onPacket{std::move(onPacket)} {}
+
+    void Reset() {
+        _storage.clear();
+        _state = CurrentState::FirstByte;
+    }
 
     void HandleBytes(std::span<const uint8_t> buffer) {
         while (!buffer.empty()) {
@@ -40,11 +44,10 @@ class ReceiveStateMachine {
                     decltype(buffer.end()) endIterator =
                         buffer.begin() + canCopy;
                     _storage.insert(_storage.end(), buffer.begin(),
-                                          endIterator);
+                                    endIterator);
                     if (canCopy == numNeeded) {
-                        uint16_t packetLength =
-                            ((uint16_t)(_storage[3]) << 8 |
-                             (uint16_t)(_storage[2]));
+                        uint16_t packetLength = ((uint16_t)(_storage[3]) << 8 |
+                                                 (uint16_t)(_storage[2]));
                         if (packetLength < 11 || packetLength > 1024) {
                             _storage.clear();
                             _state = CurrentState::FirstByte;
@@ -63,13 +66,13 @@ class ReceiveStateMachine {
                 }
                 case CurrentState::Payload: {
                     // Copy up to payload sized
-                    size_t numNeeded = _bytesToReceive - (_storage.size() - 10) ;
+                    size_t numNeeded = _bytesToReceive - (_storage.size() - 10);
                     size_t canCopy = (std::min)(numNeeded, buffer.size());
                     bytesToAdvance = canCopy;
                     decltype(buffer.end()) endIterator =
                         buffer.begin() + canCopy;
-                    _storage.insert(_storage.end(),
-                                           buffer.begin(), endIterator);
+                    _storage.insert(_storage.end(), buffer.begin(),
+                                    endIterator);
                     if (canCopy == numNeeded) {
                         _state = CurrentState::Crc;
                     }
@@ -102,7 +105,6 @@ class ReceiveStateMachine {
     size_t _bytesToReceive{0};
 
     std::vector<uint8_t> _storage;
-    std::function<void(std::span<const uint8_t>)>
-        _onPacket;
+    std::function<void(std::span<const uint8_t>)> _onPacket;
 };
 }  // namespace eh

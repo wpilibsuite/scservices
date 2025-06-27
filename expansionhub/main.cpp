@@ -41,6 +41,7 @@
 #define NUM_USB_BUSES 4
 #define NUM_MOTORS_PER_HUB 4
 #define NUM_SERVOS_PER_HUB 6
+#define MAX_NUM_OUTSTANDING_MESSAGES 8
 
 #define RHSP_ARRAY_DWORD(type, buffer, startIndex)                          \
     ((type)(buffer)[startIndex] | ((type)(buffer)[(startIndex) + 1] << 8) | \
@@ -49,8 +50,6 @@
 
 #define RHSP_ARRAY_WORD(type, buffer, startIndex) \
     ((type)(buffer)[startIndex] | ((type)(buffer)[(startIndex) + 1] << 8))
-
-static uint64_t lastLoop = wpi::Now();
 
 namespace eh {
 
@@ -185,6 +184,8 @@ struct UvSerial {
 #define POWER_CONVERSION 32767
 
     void SendMotorConstantPower(uint8_t channel, double power) {
+        power = std::clamp(power, -1.0, 1.0);
+
         uint16_t packetId = *packetInterfaceId + 15;
 
         int16_t adjustedPowerLevel = (int16_t)(power * POWER_CONVERSION);
@@ -288,6 +289,7 @@ struct UvSerial {
         // Send bytes up
         stateMachine.HandleBytes(
             std::span<const uint8_t>{readBuf, static_cast<size_t>(readVal)});
+        Flush();
     }
 
     bool AllowSend() {
@@ -298,11 +300,13 @@ struct UvSerial {
         writeBuffer.clear();
         currentCount = 0;
         receivedCount = 0;
+        lastLoop = wpi::Now();
     }
 
     void Flush() {
-        size_t allowed = 10 - outstandingMessages;
-        size_t toWrite = (std::min)(allowed, pendingWrites.size());
+        size_t available = pendingWrites.size();
+        size_t allowed = MAX_NUM_OUTSTANDING_MESSAGES - outstandingMessages;
+        size_t toWrite = (std::min)(allowed, available);
         size_t count = 0;
         for (size_t i = 0; i < toWrite; i++) {
             count += pendingWrites.front();
@@ -311,11 +315,13 @@ struct UvSerial {
         if (count == 0) {
             if (AllowSend()) {
                 auto delta = wpi::Now() - lastLoop;
-                printf("Time to finish %ld %ld\n", delta,
-                       (currentCount + receivedCount) * 8);
+                printf("Time to finish %ld %ld %ld\n", delta, currentCount,
+                       receivedCount);
             }
             return;
         }
+
+        //printf("Writing %d of %d messages\n", (int)toWrite, (int)available);
 
         write(serialFd, writeBuffer.data() + currentCount, count);
         // printf("Written %ld\n", w);
@@ -332,9 +338,9 @@ struct UvSerial {
 
         auto payload = data.subspan(10, data.size() - (11));
 
-        if (packetInterfaceId.has_value()) {
+        if (sentMessageId != MESSAGE_DISCOVER &&
+            sentMessageId != MESSAGE_QUERY_INTERFACE) {
             outstandingMessages--;
-            Flush();
         }
 
         if (packetId == 0x7F02) {
@@ -344,7 +350,7 @@ struct UvSerial {
 
         switch (sentMessageId) {
             case MESSAGE_DISCOVER:
-                if (!address.has_value()) {
+                if (!address.has_value() && data[10] == 1) {
                     address = data[5];
                     discoverStartTime = 0;
                     RunInterfacePacketId();
@@ -402,6 +408,15 @@ struct UvSerial {
         //        (int)data.size());
     }
 
+    void recover() {
+        stateMachine.Reset();
+        outstandingMessages = 0;
+        writeBuffer.clear();
+        pendingWrites.clear();
+        currentCount = 0;
+        receivedCount = 0;
+    }
+
     UvSerial(UvSerial&) = delete;
     UvSerial(UvSerial&&) = delete;
     UvSerial& operator=(UvSerial&) = delete;
@@ -426,10 +441,13 @@ struct UvSerial {
     uint8_t txBuffer[1024];
 
     std::string serialPath;
+    uint64_t lastLoop;
 };
 }  // namespace eh
 
 struct ExpansionHubState {
+    uint64_t lastLoop = wpi::Now();
+
     int socketHandle{-1};
     std::array<nt::IntegerPublisher, NUM_MOTORS_PER_HUB> encoderPublishers;
     std::array<nt::IntegerPublisher, NUM_MOTORS_PER_HUB>
@@ -444,6 +462,8 @@ struct ExpansionHubState {
         servoFramePeriodSubscribers;
 
     nt::DoublePublisher batteryVoltage;
+
+    nt::BooleanPublisher isConnected;
 
     unsigned busId{0};
 
@@ -467,6 +487,7 @@ struct ExpansionHubState {
 
 void ExpansionHubState::onDeviceAdded(std::unique_ptr<eh::UvSerial> hub) {
     currentHub = std::move(hub);
+    isConnected.Set(true);
 
     currentHub->SetCallbacks(
         [this](auto encoders, auto velocities) {
@@ -481,6 +502,7 @@ void ExpansionHubState::onDeviceAdded(std::unique_ptr<eh::UvSerial> hub) {
 
 void ExpansionHubState::onDeviceRemoved(std::string_view path) {
     if (currentHub && path == currentHub->serialPath) {
+        isConnected.Set(false);
         currentHub.reset();
     }
 }
@@ -495,32 +517,40 @@ void ExpansionHubState::onUpdate() {
         return;
     }
 
-    if (!currentHub->AllowSend()) {
-        // TODO add a timeout for how long its been outstanding.
-        printf("Skipping due to outstanding\n");
-        return;
-    }
-
     auto now = wpi::Now();
     auto delta = now - lastLoop;
+
+    bool allowSend = currentHub->AllowSend();
+
+    if (!allowSend && delta < 1000000) {
+        printf("Skipping due to outstanding\n");
+        return;
+    } else if (!allowSend && delta >= 1000000) {
+        printf("1 second timeout. Attempting to recover %d %d %d\n", (int)currentHub->outstandingMessages, (int)currentHub->currentCount, (int)currentHub->receivedCount);
+        currentHub->recover();
+    }
+
     lastLoop = now;
 
     printf("Delta time %lu\n", delta);
 
     currentHub->StartTransaction();
 
-    currentHub->SendBatteryRequest();
-    currentHub->SendBulkInput();
+    // Make sure keep alive is the first thing sent, its needed for recovery
     currentHub->SendKeepAlive();
     currentHub->GetModuleStatus();
+
+    currentHub->SendBatteryRequest();
+    currentHub->SendBulkInput();
+
 
     // We also need to handle disconnect.
     for (int i = 0; i < NUM_SERVOS_PER_HUB; i++) {
         currentHub->SendServoConfiguration(
-            i, servoFramePeriodSubscribers[i].Get(0));
+            i, servoFramePeriodSubscribers[i].Get(20000));
 
         currentHub->SendServoPulseWidth(i,
-                                        servoPulseWidthSubscribers[i].Get(0));
+                                        servoPulseWidthSubscribers[i].Get(1500));
 
         currentHub->SendServoEnable(i, servoEnabledSubscribers[i].Get(false));
     }
@@ -669,7 +699,10 @@ bool ExpansionHubState::startUvLoop(unsigned bus,
 
     auto busIdStr = std::to_string(busId);
 
-    batteryVoltage = ntInst.GetDoubleTopic("/rhsp/" + busIdStr + "/battery").Publish(options);
+    batteryVoltage = ntInst.GetDoubleTopic("/rhsp/" + busIdStr + "/battery")
+                         .Publish(options);
+    isConnected = ntInst.GetBooleanTopic("/rhsp/" + busIdStr + "/connected")
+                      .Publish(options);
 
     for (size_t i = 0; i < encoderPublishers.size(); i++) {
         auto iStr = std::to_string(i);
