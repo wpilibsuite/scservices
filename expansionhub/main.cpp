@@ -43,20 +43,89 @@
 #define NUM_SERVOS_PER_HUB 6
 #define MAX_NUM_OUTSTANDING_MESSAGES 8
 
-#define RHSP_ARRAY_DWORD(type, buffer, startIndex)                          \
-    ((type)(buffer)[startIndex] | ((type)(buffer)[(startIndex) + 1] << 8) | \
-     ((type)(buffer)[(startIndex) + 2] << 16) |                             \
-     ((type)(buffer)[(startIndex) + 3] << 24))
+#define MODULE_STATUS_ID 0x7F03
+#define KEEP_ALIVE_ID 0x7F04
+#define QUERY_INTERFACE_ID 0x7F07
+#define INTERFACE_STRING "DEKA"
+#define DISCOVER_ID 0x7F0F
+#define DISCOVER_ADDRESS 0xFF
 
-#define RHSP_ARRAY_WORD(type, buffer, startIndex) \
-    ((type)(buffer)[startIndex] | ((type)(buffer)[(startIndex) + 1] << 8))
+#define BATTERY_ADC 13
+#define POWER_CONVERSION 32767
+
+#define MESSAGE_TIMEOUT 1000000
 
 namespace eh {
 
-static uint8_t calcChecksum(const uint8_t* buffer, size_t bufferSize) {
+static constexpr void WriteUint16(std::span<uint8_t> buffer, uint16_t value) {
+    buffer[0] = static_cast<uint8_t>(value);
+    buffer[1] = static_cast<uint8_t>(value >> 8);
+}
+
+static constexpr int16_t ReadInt16(std::span<const uint8_t> buffer) {
+    return static_cast<int16_t>(buffer[0]) |
+           (static_cast<int16_t>(buffer[1]) << 8);
+}
+
+static constexpr int32_t ReadInt32(std::span<const uint8_t> buffer) {
+    return static_cast<int32_t>(buffer[0]) |
+           (static_cast<int32_t>(buffer[1]) << 8) |
+           (static_cast<int32_t>(buffer[2]) << 16) |
+           (static_cast<int32_t>(buffer[3]) << 23);
+}
+
+static constexpr uint16_t ReadUint16(std::span<const uint8_t> buffer) {
+    return static_cast<uint16_t>(buffer[0] |
+                                 (static_cast<uint16_t>(buffer[1]) << 8));
+}
+
+static constexpr uint8_t PacketReferenceNumber(
+    std::span<const uint8_t> buffer) {
+    return buffer[7];
+}
+
+static constexpr uint8_t PacketDestinationAddress(
+    std::span<const uint8_t> buffer) {
+    return buffer[4];
+}
+
+static constexpr uint8_t PacketSourceAddress(std::span<const uint8_t> buffer) {
+    return buffer[5];
+}
+
+static constexpr uint16_t PacketId(std::span<const uint8_t> buffer) {
+    return ((uint16_t)(buffer[9]) << 8 | (uint16_t)(buffer[8]));
+}
+
+static constexpr std::span<const uint8_t> PacketPayloadBuffer(
+    std::span<const uint8_t> buffer) {
+    return buffer.subspan(10, buffer.size() - 11);
+}
+
+static constexpr uint8_t PacketCrc(std::span<const uint8_t> buffer) {
+    return buffer[buffer.size() - 1];
+}
+
+static constexpr bool PacketIsAck(uint16_t packetId) {
+    return packetId == 0x7F01;
+}
+
+static constexpr bool PacketIsNack(uint16_t packetId) {
+    return packetId == 0x7F02;
+}
+
+static constexpr bool PacketIsDiscover(uint16_t packetId) {
+    return packetId == (DISCOVER_ID | 0x8000);
+}
+
+static constexpr bool PacketIsQueryInterface(uint16_t packetId) {
+    return packetId == (QUERY_INTERFACE_ID | 0x8000);
+}
+
+static constexpr uint8_t CalcChecksum(std::span<const uint8_t> buffer) {
     uint8_t sum = 0;
-    for (size_t i = 0; i < bufferSize; i++) {
-        sum += buffer[i];
+    for (auto&& b : buffer) {
+        sum += b;
     }
     return sum;
 }
@@ -106,13 +175,13 @@ struct UvSerial {
         auto delta = now - discoverStartTime;
 
         // Don't try again
-        if (delta <= 1000000) {
+        if (delta <= MESSAGE_TIMEOUT) {
             return;
         }
 
         discoverStartTime = now;
 
-        SendPacket(0xFF, MESSAGE_DISCOVER, 0x7F0F, {}, true);
+        SendPacket(DISCOVER_ADDRESS, MESSAGE_DISCOVER, DISCOVER_ID, {}, true);
     }
 
     void RunInterfacePacketId() {
@@ -129,21 +198,24 @@ struct UvSerial {
         auto delta = now - discoverStartTime;
 
         // Don't try again
-        if (delta <= 1000000) {
+        if (delta <= MESSAGE_TIMEOUT) {
             return;
         }
 
         discoverStartTime = now;
 
-        SendPacket(*address, MESSAGE_QUERY_INTERFACE, 0x7F07,
+        std::string_view interfaceString = INTERFACE_STRING;
+
+        SendPacket(*address, MESSAGE_QUERY_INTERFACE, QUERY_INTERFACE_ID,
                    std::span<const uint8_t>{
-                       reinterpret_cast<const uint8_t*>("DEKA"), 5},
+                       reinterpret_cast<const uint8_t*>(interfaceString.data()),
+                       (interfaceString.size() + 1)},
                    true);
     }
 
     void SendBatteryRequest() {
         uint16_t packetId = *packetInterfaceId + 7;
-        uint8_t buffer[2] = {13, 0};
+        uint8_t buffer[2] = {BATTERY_ADC, 0};
         SendPacket(*address, MESSAGE_BATTERY_VOLTAGE, packetId, buffer);
     }
 
@@ -181,8 +253,6 @@ struct UvSerial {
                    buffer);
     }
 
-#define POWER_CONVERSION 32767
-
     void SendMotorConstantPower(uint8_t channel, double power) {
         power = std::clamp(power, -1.0, 1.0);
 
@@ -214,12 +284,12 @@ struct UvSerial {
 
     void GetModuleStatus() {
         uint8_t clear = 1;
-        SendPacket(*address, MESSAGE_MODULE_STATUS, 0x7F03,
+        SendPacket(*address, MESSAGE_MODULE_STATUS, MODULE_STATUS_ID,
                    std::span<const uint8_t>{&clear, 1});
     }
 
     void SendKeepAlive() {
-        SendPacket(*address, MESSAGE_KEEP_ALIVE, 0x7F04, {});
+        SendPacket(*address, MESSAGE_KEEP_ALIVE, KEEP_ALIVE_ID, {});
     }
 
     void SendBulkInput() {
@@ -243,37 +313,34 @@ struct UvSerial {
     void SendPacket(uint8_t destAddr, uint8_t messageNumber,
                     uint16_t packetTypeId, std::span<const uint8_t> payload,
                     bool direct = false) {
-        txBuffer[0] = 0x44;
-        txBuffer[1] = 0x4B;
-        // TODO bounds check payload
+        assert(payload.size() < (1024 - 11));
         uint16_t bytesToSend = 10 + payload.size() + 1;
-        // @TODO implement function to make uint16 from two uint8 values
-        txBuffer[2] = (uint8_t)bytesToSend;
-        txBuffer[3] = (uint8_t)(bytesToSend >> 8);
-        txBuffer[4] = destAddr;
-        txBuffer[5] = 0x00;
-        txBuffer[6] = messageNumber;
-        txBuffer[7] = 0x00;
-        // @TODO implement function to make uint16 from two uint8 values
-        txBuffer[8] = (uint8_t)packetTypeId;
-        txBuffer[9] = (uint8_t)(packetTypeId >> 8);
+
+        std::span<uint8_t> txBufferSpan = txBuffer;
+        txBufferSpan = txBufferSpan.subspan(0, bytesToSend);
+        txBufferSpan[0] = 0x44;
+        txBufferSpan[1] = 0x4B;
+
+        WriteUint16(txBufferSpan.subspan(2, 2), bytesToSend);
+        txBufferSpan[4] = destAddr;
+        txBufferSpan[5] = 0x00;
+        txBufferSpan[6] = messageNumber;
+        txBufferSpan[7] = 0x00;
+        WriteUint16(txBufferSpan.subspan(8, 2), packetTypeId);
+
         if (!payload.empty()) {
-            memcpy(&txBuffer[10], payload.data(), payload.size());
+            memcpy(&txBufferSpan[10], payload.data(), payload.size());
         }
-        txBuffer[10 + payload.size()] =
-            calcChecksum(txBuffer, 10 + payload.size());
+        txBufferSpan[10 + payload.size()] =
+            CalcChecksum(txBufferSpan.subspan(0, 10 + payload.size()));
 
         if (direct) {
-            write(serialFd, txBuffer, bytesToSend);
+            write(serialFd, txBufferSpan.data(), txBufferSpan.size());
         } else {
-            writeBuffer.insert(writeBuffer.end(), txBuffer,
-                               txBuffer + bytesToSend);
-            pendingWrites.emplace_back(bytesToSend);
+            writeBuffer.insert(writeBuffer.end(), txBufferSpan.begin(),
+                               txBufferSpan.end());
+            pendingWrites.emplace_back(txBufferSpan.size());
         }
-
-        // ssize_t written =
-        // write(serialFd, txBuffer, bytesToSend);
-        // printf("Written %ld\n", written);
     }
 
     void DoRead() {
@@ -283,8 +350,6 @@ struct UvSerial {
             printf("Read error\n");
             return;
         }
-
-        // printf("Received %ld\n", readVal);
 
         // Send bytes up
         stateMachine.HandleBytes(
@@ -321,79 +386,86 @@ struct UvSerial {
             return;
         }
 
-        // printf("Writing %d of %d messages\n", (int)toWrite, (int)available);
-
         write(serialFd, writeBuffer.data() + currentCount, count);
-        // printf("Written %ld\n", w);
         outstandingMessages += toWrite;
         currentCount += count;
     }
 
-    void HandlePayload(std::span<const uint8_t> data) {
-        uint16_t packetId =
-            ((uint16_t)(data[9]) << 8 | (uint16_t)(data[8])) & ~0x8000;
-        uint8_t sentMessageId = data[7];
-
-        receivedCount += data.size();
-
-        auto payload = data.subspan(10, data.size() - (11));
-
-        if (sentMessageId != MESSAGE_DISCOVER &&
-            sentMessageId != MESSAGE_QUERY_INTERFACE) {
-            outstandingMessages--;
-        }
-
-        if (packetId == 0x7F02) {
-            printf("Nack %d for message id %d\n", data[10], sentMessageId);
+    void HandlePayload(std::span<const uint8_t> data, uint8_t crc) {
+        if (crc != PacketCrc(data)) {
+            printf("CRC failure, bus will recover\n");
+            if (packetInterfaceId.has_value()) {
+                // If we've already finished everything synchronous,
+                // we can treat as a NACK.
+                // The only case this isn't correct is if we get a crc
+                // error on an RS485 connected hub.
+                // This is both an unsupported scenario, and will just result
+                // in undercounting (which will still recover, just longer)
+                receivedCount += data.size();
+                outstandingMessages--;
+            }
             return;
         }
 
-        switch (sentMessageId) {
-            case MESSAGE_DISCOVER:
-                if (!address.has_value() && data[10] == 1) {
-                    address = data[5];
-                    discoverStartTime = 0;
-                    RunInterfacePacketId();
-                }
-                break;
-            case MESSAGE_QUERY_INTERFACE:
-                if (!packetInterfaceId.has_value()) {
-                    packetInterfaceId =
-                        ((uint16_t)(data[11]) << 8 | (uint16_t)(data[10]));
-                    printf("Packet interface %x, ready to send\n",
-                           *packetInterfaceId);
-                }
-                break;
+        uint16_t packetId = PacketId(data);
+        uint8_t packetReferenceNumber = PacketReferenceNumber(data);
+        auto payload = PacketPayloadBuffer(data);
 
-                // TODO servos
+        if (PacketIsNack(packetId)) {
+            if (packetReferenceNumber != MESSAGE_DISCOVER &&
+                packetReferenceNumber != MESSAGE_QUERY_INTERFACE) {
+                // Not a synchronous packet, adjust counts
+                receivedCount += data.size();
+                outstandingMessages--;
+            }
+            printf("Nack %d for message id %d\n", payload[0],
+                   packetReferenceNumber);
+        }
 
+        if (PacketIsDiscover(packetId)) {
+            if (!address.has_value() && payload[0] == 1) {
+                address = PacketSourceAddress(data);
+                discoverStartTime = 0;
+                RunInterfacePacketId();
+            }
+            return;
+        } else if (PacketIsQueryInterface(packetId)) {
+            if (!packetInterfaceId.has_value()) {
+                packetInterfaceId = ReadUint16(payload);
+                printf("Packet interface %x, ready to send\n",
+                       *packetInterfaceId);
+            }
+            return;
+        }
+
+        // Anything else adjusts received count and outstanding messages
+        receivedCount += data.size();
+        outstandingMessages--;
+
+        switch (packetReferenceNumber) {
             case MESSAGE_BULK_INPUT: {
                 int32_t encoders[4];
                 int16_t encoderVels[4];
 
-                encoders[0] = RHSP_ARRAY_DWORD(int32_t, payload.data(), 1);
-                encoders[1] = RHSP_ARRAY_DWORD(int32_t, payload.data(), 5);
-                encoders[2] = RHSP_ARRAY_DWORD(int32_t, payload.data(), 9);
-                encoders[3] = RHSP_ARRAY_DWORD(int32_t, payload.data(), 13);
+                encoders[0] = ReadInt32(payload.subspan(1));
+                encoders[1] = ReadInt32(payload.subspan(5));
+                encoders[2] = ReadInt32(payload.subspan(9));
+                encoders[3] = ReadInt32(payload.subspan(13));
 
-                encoderVels[0] = RHSP_ARRAY_WORD(int16_t, payload.data(), 18);
-                encoderVels[1] = RHSP_ARRAY_WORD(int16_t, payload.data(), 20);
-                encoderVels[2] = RHSP_ARRAY_WORD(int16_t, payload.data(), 22);
-                encoderVels[3] = RHSP_ARRAY_WORD(int16_t, payload.data(), 24);
+                encoderVels[0] = ReadInt16(payload.subspan(18));
+                encoderVels[1] = ReadInt16(payload.subspan(20));
+                encoderVels[2] = ReadInt16(payload.subspan(22));
+                encoderVels[3] = ReadInt16(payload.subspan(24));
 
                 if (_onEncoders) {
                     _onEncoders(encoders, encoderVels);
                 }
                 break;
             }
-            case MESSAGE_KEEP_ALIVE:
-
-                break;
-
             case MESSAGE_BATTERY_VOLTAGE:
 
                 if (_onBatteryVoltage) {
-                    int16_t adc = RHSP_ARRAY_WORD(int32_t, payload.data(), 0);
+                    int16_t adc = ReadInt16(payload);
                     _onBatteryVoltage(adc / 1000.0);
                 }
 
@@ -402,10 +474,6 @@ struct UvSerial {
                 // printf("Unknown message number\n");
                 break;
         }
-
-        // printf("Received message id %x %x %x %x %x %x 0x%x %d\n", data[4],
-        //        data[5], data[6], data[7], data[8], data[9], packetId,
-        //        (int)data.size());
     }
 
     void recover() {
@@ -426,7 +494,7 @@ struct UvSerial {
     int serialFd{-1};
     std::weak_ptr<wpi::uv::Poll> serialPoll;
     eh::ReceiveStateMachine stateMachine{
-        [this](auto data) { HandlePayload(data); }};
+        [this](auto data, auto crc) { HandlePayload(data, crc); }};
 
     uint64_t discoverStartTime{0};
     std::optional<uint8_t> address{};
