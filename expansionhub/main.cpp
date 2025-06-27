@@ -321,7 +321,7 @@ struct UvSerial {
             return;
         }
 
-        //printf("Writing %d of %d messages\n", (int)toWrite, (int)available);
+        // printf("Writing %d of %d messages\n", (int)toWrite, (int)available);
 
         write(serialFd, writeBuffer.data() + currentCount, count);
         // printf("Written %ld\n", w);
@@ -526,7 +526,9 @@ void ExpansionHubState::onUpdate() {
         printf("Skipping due to outstanding\n");
         return;
     } else if (!allowSend && delta >= 1000000) {
-        printf("1 second timeout. Attempting to recover %d %d %d\n", (int)currentHub->outstandingMessages, (int)currentHub->currentCount, (int)currentHub->receivedCount);
+        printf("1 second timeout. Attempting to recover %d %d %d\n",
+               (int)currentHub->outstandingMessages,
+               (int)currentHub->currentCount, (int)currentHub->receivedCount);
         currentHub->recover();
     }
 
@@ -540,25 +542,37 @@ void ExpansionHubState::onUpdate() {
     currentHub->SendKeepAlive();
     currentHub->GetModuleStatus();
 
+    // Do requests next
     currentHub->SendBatteryRequest();
     currentHub->SendBulkInput();
 
+    // We've unrolled these so we can control updates together to make
+    // sure they happen as close as possible.
 
-    // We also need to handle disconnect.
+    // First the 4 motors, as those will get sent in the same UART request as
+    // the initial send.
+    for (int i = 0; i < NUM_MOTORS_PER_HUB; i++) {
+        currentHub->SendMotorConstantPower(i, motorPowerSubscribers[i].Get(0));
+    }
+
+    // Then the servos
+    for (int i = 0; i < NUM_SERVOS_PER_HUB; i++) {
+        currentHub->SendServoPulseWidth(
+            i, servoPulseWidthSubscribers[i].Get(1500));
+    }
+
+    // Then all the things that are not expect to change, but we want to keep
+    // sending in case of reset.
+    for (int i = 0; i < NUM_MOTORS_PER_HUB; i++) {
+        currentHub->SendMotorMode(i);
+        currentHub->SendMotorEnable(i, true);
+    }
+
     for (int i = 0; i < NUM_SERVOS_PER_HUB; i++) {
         currentHub->SendServoConfiguration(
             i, servoFramePeriodSubscribers[i].Get(20000));
 
-        currentHub->SendServoPulseWidth(i,
-                                        servoPulseWidthSubscribers[i].Get(1500));
-
         currentHub->SendServoEnable(i, servoEnabledSubscribers[i].Get(false));
-    }
-
-    for (int i = 0; i < NUM_MOTORS_PER_HUB; i++) {
-        currentHub->SendMotorMode(i);
-        currentHub->SendMotorConstantPower(i, motorPowerSubscribers[i].Get(0));
-        currentHub->SendMotorEnable(i, true);
     }
 
     currentHub->Flush();
