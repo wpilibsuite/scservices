@@ -65,12 +65,43 @@ struct robot_state {
 #define DISCOVER_ID 0x7F0F
 #define DISCOVER_ADDRESS 0xFF
 
+#define MOTOR_0_ADC 8
 #define BATTERY_ADC 13
 #define POWER_CONVERSION 32767
 
 #define MESSAGE_TIMEOUT 1000000
 
 namespace eh {
+
+struct NetworkTablesStore {
+    std::array<nt::IntegerPublisher, NUM_MOTORS_PER_HUB> encoderPublishers;
+    std::array<nt::IntegerPublisher, NUM_MOTORS_PER_HUB>
+        encoderVelocityPublishers;
+    std::array<nt::DoubleSubscriber, NUM_MOTORS_PER_HUB> motorPowerSubscribers;
+    std::array<nt::BooleanSubscriber, NUM_MOTORS_PER_HUB>
+        motorEnabledSubscribers;
+    std::array<nt::BooleanSubscriber, NUM_MOTORS_PER_HUB> motorFloatSubscibers;
+    std::array<nt::DoublePublisher, NUM_MOTORS_PER_HUB> motorCurrentPublishers;
+
+    std::array<nt::BooleanSubscriber, NUM_SERVOS_PER_HUB>
+        servoEnabledSubscribers;
+    std::array<nt::IntegerSubscriber, NUM_SERVOS_PER_HUB>
+        servoPulseWidthSubscribers;
+    std::array<nt::IntegerSubscriber, NUM_SERVOS_PER_HUB>
+        servoFramePeriodSubscribers;
+
+    nt::DoublePublisher batteryVoltagePublisher;
+
+    nt::BooleanPublisher isConnectedPublisher;
+
+    nt::IntegerPublisher numNacksPublisher;
+    nt::IntegerPublisher numCrcFailuresPublisher;
+    nt::IntegerPublisher numMissedSendLoopsPublisher;
+
+    uint64_t numNacks{0};
+    uint64_t numCrcFailures{0};
+    uint64_t numMissedSendLoops{0};
+};
 
 static constexpr void WriteUint16(std::span<uint8_t> buffer, uint16_t value) {
     buffer[0] = static_cast<uint8_t>(value);
@@ -168,18 +199,9 @@ struct UvSerial {
         return true;
     }
 
-    void SetCallbacks(
-        std::function<void(std::span<const int32_t>, std::span<const int16_t>)>
-            onEncoders,
-        std::function<void(double)> onBatteryVoltage) {
-        _onEncoders = std::move(onEncoders);
-        _onBatteryVoltage = std::move(onBatteryVoltage);
-    }
+    void SetCallbacks(NetworkTablesStore* store) { ntStore = store; }
 
-    std::function<void(std::span<const int32_t>, std::span<const int16_t>)>
-        _onEncoders;
-
-    std::function<void(double)> _onBatteryVoltage;
+    NetworkTablesStore* ntStore{nullptr};
 
     void RunDiscoverInternal() {
         if (address.has_value()) {
@@ -234,6 +256,14 @@ struct UvSerial {
         SendPacket(*address, MESSAGE_BATTERY_VOLTAGE, packetId, buffer);
     }
 
+    void SendMotorCurrentRequest(uint8_t channel) {
+        uint16_t packetId = *packetInterfaceId + 7;
+        uint8_t adcChannel = MOTOR_0_ADC + channel;
+        uint8_t buffer[2] = {adcChannel, 0};
+        SendPacket(*address, MESSAGE_MOTOR_GET_CURRENT_0 + channel, packetId,
+                   buffer);
+    }
+
     void SendServoConfiguration(uint8_t channel, uint16_t framePeriod) {
         if (framePeriod <= 1) {
             return;
@@ -282,9 +312,10 @@ struct UvSerial {
                    packetId, buffer);
     }
 
-    void SendMotorMode(uint8_t channel) {
+    void SendMotorMode(uint8_t channel, bool floatVal) {
         uint16_t packetId = *packetInterfaceId + 8;
-        uint8_t cmdPayload[3] = {channel, 0, 0};
+        uint8_t doFloat = floatVal ? 1 : 0;
+        uint8_t cmdPayload[3] = {channel, 0, doFloat};
         SendPacket(*address, MESSAGE_MOTOR_SET_RUN_MODE_0 + channel, packetId,
                    cmdPayload);
     }
@@ -395,8 +426,10 @@ struct UvSerial {
         if (count == 0) {
             if (AllowSend()) {
                 auto delta = wpi::Now() - lastLoop;
-                printf("Time to finish %ld %ld %ld\n", delta, currentCount,
-                       receivedCount);
+                if (delta >= 18000) {
+                    printf("Time to finish %ld %ld %ld\n", delta, currentCount,
+                           receivedCount);
+                }
             }
             return;
         }
@@ -409,6 +442,10 @@ struct UvSerial {
     void HandlePayload(std::span<const uint8_t> data, uint8_t crc) {
         if (crc != PacketCrc(data)) {
             printf("CRC failure, bus will recover\n");
+            if (ntStore) {
+                ntStore->numCrcFailures++;
+                ntStore->numCrcFailuresPublisher.Set(ntStore->numCrcFailures);
+            }
             if (packetInterfaceId.has_value()) {
                 // If we've already finished everything synchronous,
                 // we can treat as a NACK.
@@ -435,6 +472,10 @@ struct UvSerial {
             }
             printf("Nack %d for message id %d\n", payload[0],
                    packetReferenceNumber);
+            if (ntStore) {
+                ntStore->numNacks++;
+                ntStore->numNacksPublisher.Set(ntStore->numNacks);
+            }
         }
 
         if (PacketIsDiscover(packetId)) {
@@ -459,32 +500,76 @@ struct UvSerial {
 
         switch (packetReferenceNumber) {
             case MESSAGE_BULK_INPUT: {
-                int32_t encoders[4];
-                int16_t encoderVels[4];
-
-                encoders[0] = ReadInt32(payload.subspan(1));
-                encoders[1] = ReadInt32(payload.subspan(5));
-                encoders[2] = ReadInt32(payload.subspan(9));
-                encoders[3] = ReadInt32(payload.subspan(13));
-
-                encoderVels[0] = ReadInt16(payload.subspan(18));
-                encoderVels[1] = ReadInt16(payload.subspan(20));
-                encoderVels[2] = ReadInt16(payload.subspan(22));
-                encoderVels[3] = ReadInt16(payload.subspan(24));
-
-                if (_onEncoders) {
-                    _onEncoders(encoders, encoderVels);
+                if (!ntStore) {
+                    break;
                 }
+
+                ntStore->encoderPublishers[0].Set(
+                    ReadInt32(payload.subspan(1)));
+                ntStore->encoderPublishers[1].Set(
+                    ReadInt32(payload.subspan(5)));
+                ntStore->encoderPublishers[2].Set(
+                    ReadInt32(payload.subspan(9)));
+                ntStore->encoderPublishers[3].Set(
+                    ReadInt32(payload.subspan(13)));
+
+                ntStore->encoderVelocityPublishers[0].Set(
+                    ReadInt16(payload.subspan(18)));
+                ntStore->encoderVelocityPublishers[1].Set(
+                    ReadInt16(payload.subspan(20)));
+                ntStore->encoderVelocityPublishers[2].Set(
+                    ReadInt16(payload.subspan(22)));
+                ntStore->encoderVelocityPublishers[3].Set(
+                    ReadInt16(payload.subspan(24)));
+
                 break;
             }
             case MESSAGE_BATTERY_VOLTAGE:
-
-                if (_onBatteryVoltage) {
-                    int16_t adc = ReadInt16(payload);
-                    _onBatteryVoltage(adc / 1000.0);
+                if (!ntStore) {
+                    break;
                 }
 
+                ntStore->batteryVoltagePublisher.Set(ReadInt16(payload) /
+                                                     1000.0);
+
                 break;
+
+            case MESSAGE_MOTOR_GET_CURRENT_0:
+                if (!ntStore) {
+                    break;
+                }
+
+                ntStore->motorCurrentPublishers[0].Set(ReadInt16(payload) /
+                                                       1000.0);
+                break;
+
+            case MESSAGE_MOTOR_GET_CURRENT_1:
+                if (!ntStore) {
+                    break;
+                }
+
+                ntStore->motorCurrentPublishers[1].Set(ReadInt16(payload) /
+                                                       1000.0);
+                break;
+
+            case MESSAGE_MOTOR_GET_CURRENT_2:
+                if (!ntStore) {
+                    break;
+                }
+
+                ntStore->motorCurrentPublishers[2].Set(ReadInt16(payload) /
+                                                       1000.0);
+                break;
+
+            case MESSAGE_MOTOR_GET_CURRENT_3:
+                if (!ntStore) {
+                    break;
+                }
+
+                ntStore->motorCurrentPublishers[3].Set(ReadInt16(payload) /
+                                                       1000.0);
+                break;
+
             default:
                 // printf("Unknown message number\n");
                 break;
@@ -532,21 +617,8 @@ struct ExpansionHubState {
     uint64_t lastLoop = wpi::Now();
 
     int socketHandle{-1};
-    std::array<nt::IntegerPublisher, NUM_MOTORS_PER_HUB> encoderPublishers;
-    std::array<nt::IntegerPublisher, NUM_MOTORS_PER_HUB>
-        encoderVelocityPublishers;
-    std::array<nt::DoubleSubscriber, NUM_MOTORS_PER_HUB> motorPowerSubscribers;
 
-    std::array<nt::BooleanSubscriber, NUM_SERVOS_PER_HUB>
-        servoEnabledSubscribers;
-    std::array<nt::IntegerSubscriber, NUM_SERVOS_PER_HUB>
-        servoPulseWidthSubscribers;
-    std::array<nt::IntegerSubscriber, NUM_SERVOS_PER_HUB>
-        servoFramePeriodSubscribers;
-
-    nt::DoublePublisher batteryVoltage;
-
-    nt::BooleanPublisher isConnected;
+    eh::NetworkTablesStore ntStore;
 
     unsigned busId{0};
 
@@ -570,22 +642,22 @@ struct ExpansionHubState {
 
 void ExpansionHubState::onDeviceAdded(std::unique_ptr<eh::UvSerial> hub) {
     currentHub = std::move(hub);
-    isConnected.Set(true);
+    ntStore.isConnectedPublisher.Set(true);
+    printf("Device added\n");
+    ntStore.numNacks = 0;
+    ntStore.numNacksPublisher.Set(ntStore.numNacks);
+    ntStore.numCrcFailures = 0;
+    ntStore.numCrcFailuresPublisher.Set(ntStore.numCrcFailures);
+    ntStore.numMissedSendLoops = 0;
+    ntStore.numMissedSendLoopsPublisher.Set(ntStore.numMissedSendLoops);
+    currentHub->SetCallbacks(&ntStore);
 
-    currentHub->SetCallbacks(
-        [this](auto encoders, auto velocities) {
-            for (int i = 0; i < NUM_MOTORS_PER_HUB; i++) {
-                encoderPublishers[i].Set(encoders[i]);
-                encoderVelocityPublishers[i].Set(velocities[i]);
-            }
-        },
-        [this](double voltage) { batteryVoltage.Set(voltage); });
     // TODO we only want the timer running if we have a device.
 }
 
 void ExpansionHubState::onDeviceRemoved(std::string_view path) {
     if (currentHub && path == currentHub->serialPath) {
-        isConnected.Set(false);
+        ntStore.isConnectedPublisher.Set(false);
         currentHub.reset();
     }
 }
@@ -607,6 +679,8 @@ void ExpansionHubState::onUpdate(bool canEnable) {
 
     if (!allowSend && delta < 1000000) {
         printf("Skipping due to outstanding\n");
+        ntStore.numMissedSendLoops++;
+        ntStore.numMissedSendLoopsPublisher.Set(ntStore.numMissedSendLoops);
         return;
     } else if (!allowSend && delta >= 1000000) {
         printf("1 second timeout. Attempting to recover %d %d %d\n",
@@ -617,7 +691,9 @@ void ExpansionHubState::onUpdate(bool canEnable) {
 
     lastLoop = now;
 
-    printf("Delta time %lu\n", delta);
+    if (delta > 23000) {
+        printf("Delta time %lu\n", delta);
+    }
 
     currentHub->StartTransaction();
 
@@ -635,27 +711,38 @@ void ExpansionHubState::onUpdate(bool canEnable) {
     // First the 4 motors, as those will get sent in the same UART request as
     // the initial send.
     for (int i = 0; i < NUM_MOTORS_PER_HUB; i++) {
-        currentHub->SendMotorConstantPower(i, motorPowerSubscribers[i].Get(0));
+        currentHub->SendMotorConstantPower(
+            i, ntStore.motorPowerSubscribers[i].Get(0));
     }
 
     // Then the servos
     for (int i = 0; i < NUM_SERVOS_PER_HUB; i++) {
         currentHub->SendServoPulseWidth(
-            i, servoPulseWidthSubscribers[i].Get(1500));
+            i, ntStore.servoPulseWidthSubscribers[i].Get(1500));
+    }
+
+    // Then the motor currents
+    for (int i = 0; i < NUM_MOTORS_PER_HUB; i++) {
+        currentHub->SendMotorCurrentRequest(i);
     }
 
     // Then all the things that are not expect to change, but we want to keep
     // sending in case of reset.
     for (int i = 0; i < NUM_MOTORS_PER_HUB; i++) {
-        currentHub->SendMotorMode(i);
-        currentHub->SendMotorEnable(i, canEnable);
+        currentHub->SendMotorMode(i,
+                                  ntStore.motorFloatSubscibers[i].Get(false));
+        currentHub->SendMotorEnable(
+            i,
+            canEnable ? ntStore.motorEnabledSubscribers[i].Get(false) : false);
     }
 
     for (int i = 0; i < NUM_SERVOS_PER_HUB; i++) {
         currentHub->SendServoConfiguration(
-            i, servoFramePeriodSubscribers[i].Get(20000));
+            i, ntStore.servoFramePeriodSubscribers[i].Get(20000));
 
-        currentHub->SendServoEnable(i, canEnable ? servoEnabledSubscribers[i].Get(false) : false);
+        currentHub->SendServoEnable(
+            i,
+            canEnable ? ntStore.servoEnabledSubscribers[i].Get(false) : false);
     }
 
     currentHub->Flush();
@@ -796,43 +883,72 @@ bool ExpansionHubState::startUvLoop(unsigned bus,
 
     auto busIdStr = std::to_string(busId);
 
-    batteryVoltage = ntInst.GetDoubleTopic("/rhsp/" + busIdStr + "/battery")
-                         .Publish(options);
-    isConnected = ntInst.GetBooleanTopic("/rhsp/" + busIdStr + "/connected")
-                      .Publish(options);
+    ntStore.batteryVoltagePublisher =
+        ntInst.GetDoubleTopic("/rhsp/" + busIdStr + "/battery")
+            .Publish(options);
+    ntStore.isConnectedPublisher =
+        ntInst.GetBooleanTopic("/rhsp/" + busIdStr + "/connected")
+            .Publish(options);
 
-    for (size_t i = 0; i < encoderPublishers.size(); i++) {
+    ntStore.numCrcFailuresPublisher =
+        ntInst.GetIntegerTopic("/rhsp/" + busIdStr + "/numCrcFailures")
+            .Publish(options);
+
+    ntStore.numMissedSendLoopsPublisher =
+        ntInst.GetIntegerTopic("/rhsp/" + busIdStr + "/numMissedSendLoops")
+            .Publish(options);
+
+    ntStore.numNacksPublisher =
+        ntInst.GetIntegerTopic("/rhsp/" + busIdStr + "/numNacks")
+            .Publish(options);
+
+    for (size_t i = 0; i < ntStore.encoderPublishers.size(); i++) {
         auto iStr = std::to_string(i);
-        encoderPublishers[i] =
+        ntStore.encoderPublishers[i] =
             ntInst
                 .GetIntegerTopic("/rhsp/" + busIdStr + "/motor" + iStr +
                                  "/encoder")
                 .Publish(options);
-        encoderVelocityPublishers[i] =
+        ntStore.encoderVelocityPublishers[i] =
             ntInst
                 .GetIntegerTopic("/rhsp/" + busIdStr + "/motor" + iStr +
                                  "/encoderVelocity")
                 .Publish(options);
-        motorPowerSubscribers[i] =
+        ntStore.motorCurrentPublishers[i] =
+            ntInst
+                .GetDoubleTopic("/rhsp/" + busIdStr + "/motor" + iStr +
+                                "/current")
+                .Publish(options);
+        ntStore.motorPowerSubscribers[i] =
             ntInst
                 .GetDoubleTopic("/rhsp/" + busIdStr + "/motor" + iStr +
                                 "/power")
                 .Subscribe(0, options);
+        ntStore.motorFloatSubscibers[i] =
+            ntInst
+                .GetBooleanTopic("/rhsp/" + busIdStr + "/motor" + iStr +
+                                 "/floatOn0")
+                .Subscribe(false, options);
+        ntStore.motorEnabledSubscribers[i] =
+            ntInst
+                .GetBooleanTopic("/rhsp/" + busIdStr + "/motor" + iStr +
+                                 "/enabled")
+                .Subscribe(false, options);
     }
 
-    for (size_t i = 0; i < servoEnabledSubscribers.size(); i++) {
+    for (size_t i = 0; i < ntStore.servoEnabledSubscribers.size(); i++) {
         auto iStr = std::to_string(i);
-        servoEnabledSubscribers[i] =
+        ntStore.servoEnabledSubscribers[i] =
             ntInst
                 .GetBooleanTopic("/rhsp/" + busIdStr + "/servo" + iStr +
                                  "/enabled")
                 .Subscribe(false, options);
-        servoFramePeriodSubscribers[i] =
+        ntStore.servoFramePeriodSubscribers[i] =
             ntInst
                 .GetIntegerTopic("/rhsp/" + busIdStr + "/servo" + iStr +
                                  "/framePeriod")
                 .Subscribe(0, options);
-        servoPulseWidthSubscribers[i] =
+        ntStore.servoPulseWidthSubscribers[i] =
             ntInst
                 .GetIntegerTopic("/rhsp/" + busIdStr + "/servo" + iStr +
                                  "/pulseWidth")
@@ -887,8 +1003,8 @@ int main() {
     };
 
     bool success = false;
-    loopRunner.ExecSync([&success, &states, &loopStorage,
-                         &ntInst, control_data_fd](wpi::uv::Loop& loop) {
+    loopRunner.ExecSync([&success, &states, &loopStorage, &ntInst,
+                         control_data_fd](wpi::uv::Loop& loop) {
         loopStorage.loop = &loop;
         for (size_t i = 0; i < states.size(); i++) {
             success = states[i].startUvLoop(i, ntInst, loop);
@@ -975,11 +1091,12 @@ int main() {
             struct robot_state state;
             memset(&state, 0, sizeof(state));
 
-            ssize_t control_data_size = pread(control_data_fd, buf, sizeof(buf), 0);
+            ssize_t control_data_size =
+                pread(control_data_fd, buf, sizeof(buf), 0);
 
             buf[control_data_size] = '\0';
 
-            unsigned int control_data  = strtol(buf, NULL, 16);
+            unsigned int control_data = strtol(buf, NULL, 16);
 
             bool system_watchdog = (control_data & 0x1) != 0 ? true : false;
 
