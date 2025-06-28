@@ -93,6 +93,11 @@ struct MotorStore {
     nt::BooleanSubscriber reversedSubscriber;
     nt::BooleanSubscriber resetEncoderSubscriber;
 
+    nt::DoubleSubscriber distancePerCountSubscriber;
+
+    bool doReset{false};
+    int64_t lastResetTime{0};
+
     void Initialize(const nt::NetworkTableInstance& instance, int motorNum,
                     const std::string& busIdStr, nt::PubSubOptions options);
 };
@@ -161,9 +166,11 @@ void MotorStore::Initialize(const nt::NetworkTableInstance& instance,
                                               iStr + "/reversed")
                              .Subscribe(false, options);
 
-    resetEncoderSubscriber = instance.GetBooleanTopic("/rhsp/" + busIdStr + "/motor" +
-                                              iStr + "/resetEncoder")
-                             .Subscribe(false, options);
+    resetEncoderSubscriber =
+        instance
+            .GetBooleanTopic("/rhsp/" + busIdStr + "/motor" + iStr +
+                             "/resetEncoder")
+            .Subscribe(false, options);
 }
 
 struct ServoStore {
@@ -445,6 +452,13 @@ struct UvSerial {
                    buffer);
     }
 
+    void SendEncoderResetRequest(uint8_t channel) {
+        uint16_t packetId = *packetInterfaceId + 14;
+        uint8_t buffer[1] = {channel};
+        SendPacket(*address, MESSAGE_MOTOR_RESET_ENCODER_0 + channel, packetId,
+                   buffer);
+    }
+
     void SendServoConfiguration(uint8_t channel, uint16_t framePeriod) {
         if (framePeriod <= 1) {
             return;
@@ -710,6 +724,29 @@ struct UvSerial {
         // Anything else will adjust the state advance
 
         switch (packetReferenceNumber) {
+            case MESSAGE_MOTOR_RESET_ENCODER_0: {
+                ntStore->motors[0].doReset = false;
+
+                break;
+            }
+
+            case MESSAGE_MOTOR_RESET_ENCODER_1: {
+                ntStore->motors[1].doReset = false;
+
+                break;
+            }
+
+            case MESSAGE_MOTOR_RESET_ENCODER_2: {
+                ntStore->motors[2].doReset = false;
+
+                break;
+            }
+            case MESSAGE_MOTOR_RESET_ENCODER_3: {
+                ntStore->motors[3].doReset = false;
+
+                break;
+            }
+
             case MESSAGE_BULK_INPUT: {
                 if (!ntStore) {
                     break;
@@ -882,6 +919,19 @@ void ExpansionHubState::sendInitial() {
     // Make sure keep alive is the first thing sent, its needed for recovery
     currentHub->SendKeepAlive();
     currentHub->GetModuleStatus();
+
+    // Do encoder resets next
+    for (int i = 0; i < NUM_MOTORS_PER_HUB; i++) {
+        auto reset = ntStore.motors[i].resetEncoderSubscriber.GetAtomic(false);
+        if (reset.time != ntStore.motors[i].lastResetTime) {
+            ntStore.motors[i].lastResetTime = reset.time;
+            ntStore.motors[i].doReset = true;
+        }
+
+        if (ntStore.motors[i].doReset) {
+            currentHub->SendEncoderResetRequest(i);
+        }
+    }
 
     // Do requests next
     currentHub->SendBatteryRequest();
