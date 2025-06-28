@@ -73,22 +73,130 @@ struct robot_state {
 
 namespace eh {
 
-struct NetworkTablesStore {
-    std::array<nt::IntegerPublisher, NUM_MOTORS_PER_HUB> encoderPublishers;
-    std::array<nt::IntegerPublisher, NUM_MOTORS_PER_HUB>
-        encoderVelocityPublishers;
-    std::array<nt::DoubleSubscriber, NUM_MOTORS_PER_HUB> motorPowerSubscribers;
-    std::array<nt::BooleanSubscriber, NUM_MOTORS_PER_HUB>
-        motorEnabledSubscribers;
-    std::array<nt::BooleanSubscriber, NUM_MOTORS_PER_HUB> motorFloatSubscibers;
-    std::array<nt::DoublePublisher, NUM_MOTORS_PER_HUB> motorCurrentPublishers;
+struct MotorStore {
+    nt::BooleanSubscriber enabledSubscriber;
+    nt::DoublePublisher encoderPublisher;
+    nt::DoublePublisher velocityPublisher;
+    nt::DoublePublisher currentPublisher;
 
-    std::array<nt::BooleanSubscriber, NUM_SERVOS_PER_HUB>
-        servoEnabledSubscribers;
-    std::array<nt::IntegerSubscriber, NUM_SERVOS_PER_HUB>
-        servoPulseWidthSubscribers;
-    std::array<nt::IntegerSubscriber, NUM_SERVOS_PER_HUB>
-        servoFramePeriodSubscribers;
+    nt::BooleanSubscriber floatOn0Subscriber;
+    nt::IntegerSubscriber modeSubscriber;
+
+    nt::DoubleSubscriber setpointSubscriber;
+
+    nt::DoubleSubscriber pSubscriber;
+    nt::DoubleSubscriber iSubscriber;
+    nt::DoubleSubscriber dSubscriber;
+    nt::DoubleSubscriber ffSubscriber;
+
+    nt::BooleanSubscriber continousSubscriber;
+    nt::BooleanSubscriber reversedSubscriber;
+    nt::BooleanSubscriber resetEncoderSubscriber;
+
+    void Initialize(const nt::NetworkTableInstance& instance, int motorNum,
+                    const std::string& busIdStr, nt::PubSubOptions options);
+};
+
+void MotorStore::Initialize(const nt::NetworkTableInstance& instance,
+                            int motorNum, const std::string& busIdStr,
+                            nt::PubSubOptions options) {
+    auto iStr = std::to_string(motorNum);
+    encoderPublisher =
+        instance
+            .GetDoubleTopic("/rhsp/" + busIdStr + "/motor" + iStr + "/encoder")
+            .Publish(options);
+    velocityPublisher = instance
+                            .GetDoubleTopic("/rhsp/" + busIdStr + "/motor" +
+                                            iStr + "/encoderVelocity")
+                            .Publish(options);
+    currentPublisher =
+        instance
+            .GetDoubleTopic("/rhsp/" + busIdStr + "/motor" + iStr + "/current")
+            .Publish(options);
+    setpointSubscriber =
+        instance
+            .GetDoubleTopic("/rhsp/" + busIdStr + "/motor" + iStr + "/setpoint")
+            .Subscribe(0, options);
+    floatOn0Subscriber = instance
+                             .GetBooleanTopic("/rhsp/" + busIdStr + "/motor" +
+                                              iStr + "/floatOn0")
+                             .Subscribe(false, options);
+    enabledSubscriber =
+        instance
+            .GetBooleanTopic("/rhsp/" + busIdStr + "/motor" + iStr + "/enabled")
+            .Subscribe(false, options);
+
+    modeSubscriber =
+        instance
+            .GetIntegerTopic("/rhsp/" + busIdStr + "/motor" + iStr + "/mode")
+            .Subscribe(0, options);
+
+    pSubscriber =
+        instance
+            .GetDoubleTopic("/rhsp/" + busIdStr + "/motor" + iStr + "/pid/p")
+            .Subscribe(0, options);
+
+    iSubscriber =
+        instance
+            .GetDoubleTopic("/rhsp/" + busIdStr + "/motor" + iStr + "/pid/i")
+            .Subscribe(0, options);
+
+    dSubscriber =
+        instance
+            .GetDoubleTopic("/rhsp/" + busIdStr + "/motor" + iStr + "/pid/d")
+            .Subscribe(0, options);
+
+    ffSubscriber =
+        instance
+            .GetDoubleTopic("/rhsp/" + busIdStr + "/motor" + iStr + "/pid/ff")
+            .Subscribe(0, options);
+
+    continousSubscriber = instance
+                              .GetBooleanTopic("/rhsp/" + busIdStr + "/motor" +
+                                               iStr + "/pid/continous")
+                              .Subscribe(false, options);
+
+    reversedSubscriber = instance
+                             .GetBooleanTopic("/rhsp/" + busIdStr + "/motor" +
+                                              iStr + "/reversed")
+                             .Subscribe(false, options);
+
+    resetEncoderSubscriber = instance.GetBooleanTopic("/rhsp/" + busIdStr + "/motor" +
+                                              iStr + "/resetEncoder")
+                             .Subscribe(false, options);
+}
+
+struct ServoStore {
+    nt::BooleanSubscriber enabledSubscriber;
+    nt::IntegerSubscriber pulseWidthSubscriber;
+    nt::IntegerSubscriber framePeriodSubscriber;
+
+    void Initialize(const nt::NetworkTableInstance& instance, int servoNum,
+                    const std::string& busIdStr, nt::PubSubOptions options);
+};
+
+void ServoStore::Initialize(const nt::NetworkTableInstance& instance,
+                            int servoNum, const std::string& busIdStr,
+                            nt::PubSubOptions options) {
+    auto iStr = std::to_string(servoNum);
+    enabledSubscriber =
+        instance
+            .GetBooleanTopic("/rhsp/" + busIdStr + "/servo" + iStr + "/enabled")
+            .Subscribe(false, options);
+    framePeriodSubscriber =
+        instance
+            .GetIntegerTopic("/rhsp/" + busIdStr + "/servo" + iStr +
+                             "/framePeriod")
+            .Subscribe(0, options);
+    pulseWidthSubscriber = instance
+                               .GetIntegerTopic("/rhsp/" + busIdStr + "/servo" +
+                                                iStr + "/pulseWidth")
+                               .Subscribe(0, options);
+}
+
+struct NetworkTablesStore {
+    std::array<MotorStore, NUM_MOTORS_PER_HUB> motors;
+    std::array<ServoStore, NUM_SERVOS_PER_HUB> servos;
 
     nt::DoublePublisher batteryVoltagePublisher;
 
@@ -101,7 +209,50 @@ struct NetworkTablesStore {
     uint64_t numNacks{0};
     uint64_t numCrcFailures{0};
     uint64_t numMissedSendLoops{0};
+
+    void Initialize(const nt::NetworkTableInstance& instance, int deviceNum);
 };
+
+void NetworkTablesStore::Initialize(const nt::NetworkTableInstance& instance,
+                                    int deviceNum) {
+    if (isConnectedPublisher) {
+        return;
+    }
+
+    nt::PubSubOptions options;
+    options.sendAll = true;
+    options.keepDuplicates = true;
+    options.periodic = 0.005;
+
+    auto busIdStr = std::to_string(deviceNum);
+
+    for (int i = 0; i < static_cast<int>(motors.size()); i++) {
+        motors[i].Initialize(instance, i, busIdStr, options);
+    }
+
+    for (int i = 0; i < static_cast<int>(servos.size()); i++) {
+        servos[i].Initialize(instance, i, busIdStr, options);
+    }
+
+    batteryVoltagePublisher =
+        instance.GetDoubleTopic("/rhsp/" + busIdStr + "/battery")
+            .Publish(options);
+    isConnectedPublisher =
+        instance.GetBooleanTopic("/rhsp/" + busIdStr + "/connected")
+            .Publish(options);
+
+    numCrcFailuresPublisher =
+        instance.GetIntegerTopic("/rhsp/" + busIdStr + "/numCrcFailures")
+            .Publish(options);
+
+    numMissedSendLoopsPublisher =
+        instance.GetIntegerTopic("/rhsp/" + busIdStr + "/numMissedSendLoops")
+            .Publish(options);
+
+    numNacksPublisher =
+        instance.GetIntegerTopic("/rhsp/" + busIdStr + "/numNacks")
+            .Publish(options);
+}
 
 static constexpr void WriteUint16(std::span<uint8_t> buffer, uint16_t value) {
     buffer[0] = static_cast<uint8_t>(value);
@@ -117,7 +268,7 @@ static constexpr int32_t ReadInt32(std::span<const uint8_t> buffer) {
     return static_cast<int32_t>(buffer[0]) |
            (static_cast<int32_t>(buffer[1]) << 8) |
            (static_cast<int32_t>(buffer[2]) << 16) |
-           (static_cast<int32_t>(buffer[3]) << 23);
+           (static_cast<int32_t>(buffer[3]) << 24);
 }
 
 static constexpr uint16_t ReadUint16(std::span<const uint8_t> buffer) {
@@ -176,6 +327,14 @@ static constexpr uint8_t CalcChecksum(std::span<const uint8_t> buffer) {
     return sum;
 }
 
+enum class SendState {
+    ReadyToSend,
+    WaitingForEither,
+    WaitingForBattery,
+    WaitingForBulk,
+    WaitingForFinish,
+};
+
 struct UvSerial {
     // Hardocde UART parameters
     UvSerial() = default;
@@ -199,15 +358,15 @@ struct UvSerial {
         return true;
     }
 
-    void SetCallbacks(NetworkTablesStore* store) { ntStore = store; }
+    void SetCallbacks(std::function<void(bool)> doOnSendCommands,
+                      NetworkTablesStore* store) {
+        onSendCommands = std::move(doOnSendCommands), ntStore = store;
+    }
 
     NetworkTablesStore* ntStore{nullptr};
+    std::function<void(bool)> onSendCommands;
 
     void RunDiscoverInternal() {
-        if (address.has_value()) {
-            return;
-        }
-
         auto now = wpi::Now();
         auto delta = now - discoverStartTime;
 
@@ -221,16 +380,7 @@ struct UvSerial {
         SendPacket(DISCOVER_ADDRESS, MESSAGE_DISCOVER, DISCOVER_ID, {}, true);
     }
 
-    void RunInterfacePacketId() {
-        if (packetInterfaceId.has_value()) {
-            return;
-        }
-
-        if (!address.has_value()) {
-            RunDiscoverInternal();
-            return;
-        }
-
+    void RunInterfacePacketIdInternal() {
         auto now = wpi::Now();
         auto delta = now - discoverStartTime;
 
@@ -249,6 +399,37 @@ struct UvSerial {
                        (interfaceString.size() + 1)},
                    true);
     }
+
+    void RunFtdiConfigureInternal() {
+        auto now = wpi::Now();
+        auto delta = now - discoverStartTime;
+
+        // Don't try again
+        if (delta <= MESSAGE_TIMEOUT) {
+            return;
+        }
+
+        discoverStartTime = now;
+        uint16_t packetId = *packetInterfaceId + 49;
+        uint8_t buffer[1] = {1};
+
+        SendPacket(*address, MESSAGE_FTDI_RESET_CONTROL, packetId, buffer,
+                   true);
+    }
+
+    void RunSynchronousSteps() {
+        if (!address.has_value()) {
+            RunDiscoverInternal();
+        } else if (!packetInterfaceId.has_value()) {
+            RunInterfacePacketIdInternal();
+        } else if (!configuredFtdiReset) {
+            RunFtdiConfigureInternal();
+        } else {
+            printf("Device ready for transactions\n");
+        }
+    }
+
+    bool HasFinishedSynchronous() { return configuredFtdiReset; }
 
     void SendBatteryRequest() {
         uint16_t packetId = *packetInterfaceId + 7;
@@ -403,15 +584,15 @@ struct UvSerial {
         Flush();
     }
 
-    bool AllowSend() {
-        return pendingWrites.empty() && outstandingMessages == 0;
-    }
+    bool AllowSend() { return sendState == SendState::ReadyToSend; }
 
-    void StartTransaction() {
+    void StartTransaction(bool canDoEnable) {
         writeBuffer.clear();
         currentCount = 0;
         receivedCount = 0;
         lastLoop = wpi::Now();
+        canEnable = canDoEnable;
+        sendState = SendState::WaitingForEither;
     }
 
     void Flush() {
@@ -424,19 +605,46 @@ struct UvSerial {
             pendingWrites.pop_front();
         }
         if (count == 0) {
-            if (AllowSend()) {
-                auto delta = wpi::Now() - lastLoop;
-                if (delta >= 18000) {
-                    printf("Time to finish %ld %ld %ld\n", delta, currentCount,
-                           receivedCount);
-                }
-            }
             return;
         }
 
         write(serialFd, writeBuffer.data() + currentCount, count);
         outstandingMessages += toWrite;
         currentCount += count;
+    }
+
+    void CheckForStateAdvance(MessageNumbers messageNumber, size_t dataSize) {
+        receivedCount += dataSize;
+        outstandingMessages--;
+
+        if (messageNumber == MESSAGE_BATTERY_VOLTAGE &&
+            sendState == SendState::WaitingForEither) {
+            sendState = SendState::WaitingForBulk;
+        } else if (messageNumber == MESSAGE_BULK_INPUT &&
+                   sendState == SendState::WaitingForEither) {
+            sendState = SendState::WaitingForBattery;
+        } else if ((messageNumber == MESSAGE_BATTERY_VOLTAGE &&
+                    sendState == SendState::WaitingForBattery) ||
+                   (messageNumber == MESSAGE_BULK_INPUT &&
+                    sendState == SendState::WaitingForBulk)) {
+            // Have all the data needed to start commands.
+            if (onSendCommands) {
+                onSendCommands(canEnable);
+            }
+            sendState = SendState::WaitingForFinish;
+        }
+        if (pendingWrites.empty() && outstandingMessages == 0) {
+            if (sendState != SendState::WaitingForFinish) {
+                printf("Commands did not occur this loop\n");
+            }
+            // Done ready to send
+            auto delta = wpi::Now() - lastLoop;
+            if (delta >= 18000) {
+                printf("Time to finish %ld %ld %ld\n", delta, currentCount,
+                       receivedCount);
+            }
+            sendState = SendState::ReadyToSend;
+        }
     }
 
     void HandlePayload(std::span<const uint8_t> data, uint8_t crc) {
@@ -453,8 +661,7 @@ struct UvSerial {
                 // error on an RS485 connected hub.
                 // This is both an unsupported scenario, and will just result
                 // in undercounting (which will still recover, just longer)
-                receivedCount += data.size();
-                outstandingMessages--;
+                CheckForStateAdvance(MESSAGE_UNKNOWN, data.size());
             }
             return;
         }
@@ -467,8 +674,7 @@ struct UvSerial {
             if (packetReferenceNumber != MESSAGE_DISCOVER &&
                 packetReferenceNumber != MESSAGE_QUERY_INTERFACE) {
                 // Not a synchronous packet, adjust counts
-                receivedCount += data.size();
-                outstandingMessages--;
+                CheckForStateAdvance(MESSAGE_UNKNOWN, data.size());
             }
             printf("Nack %d for message id %d\n", payload[0],
                    packetReferenceNumber);
@@ -476,27 +682,32 @@ struct UvSerial {
                 ntStore->numNacks++;
                 ntStore->numNacksPublisher.Set(ntStore->numNacks);
             }
+            return;
         }
 
         if (PacketIsDiscover(packetId)) {
             if (!address.has_value() && payload[0] == 1) {
                 address = PacketSourceAddress(data);
                 discoverStartTime = 0;
-                RunInterfacePacketId();
+                RunSynchronousSteps();
             }
+            return;
+        } else if (PacketIsAck(packetId) &&
+                   packetReferenceNumber == MESSAGE_FTDI_RESET_CONTROL) {
+            configuredFtdiReset = true;
+            discoverStartTime = 0;
+            RunSynchronousSteps();
             return;
         } else if (PacketIsQueryInterface(packetId)) {
             if (!packetInterfaceId.has_value()) {
                 packetInterfaceId = ReadUint16(payload);
-                printf("Packet interface %x, ready to send\n",
-                       *packetInterfaceId);
+                discoverStartTime = 0;
+                RunSynchronousSteps();
             }
             return;
         }
 
-        // Anything else adjusts received count and outstanding messages
-        receivedCount += data.size();
-        outstandingMessages--;
+        // Anything else will adjust the state advance
 
         switch (packetReferenceNumber) {
             case MESSAGE_BULK_INPUT: {
@@ -504,23 +715,36 @@ struct UvSerial {
                     break;
                 }
 
-                ntStore->encoderPublishers[0].Set(
-                    ReadInt32(payload.subspan(1)));
-                ntStore->encoderPublishers[1].Set(
-                    ReadInt32(payload.subspan(5)));
-                ntStore->encoderPublishers[2].Set(
-                    ReadInt32(payload.subspan(9)));
-                ntStore->encoderPublishers[3].Set(
-                    ReadInt32(payload.subspan(13)));
+                double motor0Reversed =
+                    ntStore->motors[0].reversedSubscriber.Get(false) ? 1.0
+                                                                     : -1.0;
+                double motor1Reversed =
+                    ntStore->motors[1].reversedSubscriber.Get(false) ? 1.0
+                                                                     : -1.0;
+                double motor2Reversed =
+                    ntStore->motors[2].reversedSubscriber.Get(false) ? 1.0
+                                                                     : -1.0;
+                double motor3Reversed =
+                    ntStore->motors[3].reversedSubscriber.Get(false) ? 1.0
+                                                                     : -1.0;
 
-                ntStore->encoderVelocityPublishers[0].Set(
-                    ReadInt16(payload.subspan(18)));
-                ntStore->encoderVelocityPublishers[1].Set(
-                    ReadInt16(payload.subspan(20)));
-                ntStore->encoderVelocityPublishers[2].Set(
-                    ReadInt16(payload.subspan(22)));
-                ntStore->encoderVelocityPublishers[3].Set(
-                    ReadInt16(payload.subspan(24)));
+                ntStore->motors[0].encoderPublisher.Set(
+                    ReadInt32(payload.subspan(1)) * motor0Reversed);
+                ntStore->motors[1].encoderPublisher.Set(
+                    ReadInt32(payload.subspan(5)) * motor1Reversed);
+                ntStore->motors[2].encoderPublisher.Set(
+                    ReadInt32(payload.subspan(9)) * motor2Reversed);
+                ntStore->motors[3].encoderPublisher.Set(
+                    ReadInt32(payload.subspan(13)) * motor3Reversed);
+
+                ntStore->motors[0].velocityPublisher.Set(
+                    ReadInt16(payload.subspan(18)) * motor0Reversed);
+                ntStore->motors[1].velocityPublisher.Set(
+                    ReadInt16(payload.subspan(20)) * motor1Reversed);
+                ntStore->motors[2].velocityPublisher.Set(
+                    ReadInt16(payload.subspan(22)) * motor2Reversed);
+                ntStore->motors[3].velocityPublisher.Set(
+                    ReadInt16(payload.subspan(24)) * motor3Reversed);
 
                 break;
             }
@@ -539,8 +763,8 @@ struct UvSerial {
                     break;
                 }
 
-                ntStore->motorCurrentPublishers[0].Set(ReadInt16(payload) /
-                                                       1000.0);
+                ntStore->motors[0].currentPublisher.Set(ReadInt16(payload) /
+                                                        1000.0);
                 break;
 
             case MESSAGE_MOTOR_GET_CURRENT_1:
@@ -548,8 +772,8 @@ struct UvSerial {
                     break;
                 }
 
-                ntStore->motorCurrentPublishers[1].Set(ReadInt16(payload) /
-                                                       1000.0);
+                ntStore->motors[1].currentPublisher.Set(ReadInt16(payload) /
+                                                        1000.0);
                 break;
 
             case MESSAGE_MOTOR_GET_CURRENT_2:
@@ -557,8 +781,8 @@ struct UvSerial {
                     break;
                 }
 
-                ntStore->motorCurrentPublishers[2].Set(ReadInt16(payload) /
-                                                       1000.0);
+                ntStore->motors[2].currentPublisher.Set(ReadInt16(payload) /
+                                                        1000.0);
                 break;
 
             case MESSAGE_MOTOR_GET_CURRENT_3:
@@ -566,14 +790,17 @@ struct UvSerial {
                     break;
                 }
 
-                ntStore->motorCurrentPublishers[3].Set(ReadInt16(payload) /
-                                                       1000.0);
+                ntStore->motors[3].currentPublisher.Set(ReadInt16(payload) /
+                                                        1000.0);
                 break;
 
             default:
                 // printf("Unknown message number\n");
                 break;
         }
+
+        CheckForStateAdvance(static_cast<MessageNumbers>(packetReferenceNumber),
+                             data.size());
     }
 
     void recover() {
@@ -610,6 +837,11 @@ struct UvSerial {
 
     std::string serialPath;
     uint64_t lastLoop;
+    bool canEnable{false};
+
+    bool configuredFtdiReset{false};
+
+    SendState sendState = SendState::ReadyToSend;
 };
 }  // namespace eh
 
@@ -619,6 +851,8 @@ struct ExpansionHubState {
     int socketHandle{-1};
 
     eh::NetworkTablesStore ntStore;
+
+    const nt::NetworkTableInstance* ntInstance;
 
     unsigned busId{0};
 
@@ -632,6 +866,10 @@ struct ExpansionHubState {
 
     void onUpdate(bool canEnable);
 
+    void sendInitial();
+
+    void sendCommands(bool canEnable);
+
     bool startUvLoop(unsigned bus, const nt::NetworkTableInstance& ntInst,
                      wpi::uv::Loop& loop);
 
@@ -640,8 +878,69 @@ struct ExpansionHubState {
     void onDeviceRemoved(std::string_view port);
 };
 
+void ExpansionHubState::sendInitial() {
+    // Make sure keep alive is the first thing sent, its needed for recovery
+    currentHub->SendKeepAlive();
+    currentHub->GetModuleStatus();
+
+    // Do requests next
+    currentHub->SendBatteryRequest();
+    currentHub->SendBulkInput();
+
+    // Then the servos
+    for (int i = 0; i < NUM_SERVOS_PER_HUB; i++) {
+        currentHub->SendServoPulseWidth(
+            i, ntStore.servos[i].pulseWidthSubscriber.Get(1500));
+    }
+
+    currentHub->Flush();
+}
+
+void ExpansionHubState::sendCommands(bool canEnable) {
+    // We've unrolled these so we can control updates together to make
+    // sure they happen as close as possible.
+
+    // First the 4 motors, as those will get sent in the same UART request as
+    // the initial send.
+    for (int i = 0; i < NUM_MOTORS_PER_HUB; i++) {
+        double reversed =
+            ntStore.motors[i].reversedSubscriber.Get(false) ? 1.0 : -1.0;
+        currentHub->SendMotorConstantPower(
+            i, ntStore.motors[i].setpointSubscriber.Get(0) * reversed);
+    }
+
+    // Then the motor currents
+    for (int i = 0; i < NUM_MOTORS_PER_HUB; i++) {
+        currentHub->SendMotorCurrentRequest(i);
+    }
+
+    // Then all the things that are not expect to change, but we want to keep
+    // sending in case of reset.
+    for (int i = 0; i < NUM_MOTORS_PER_HUB; i++) {
+        currentHub->SendMotorMode(
+            i, ntStore.motors[i].floatOn0Subscriber.Get(false));
+        currentHub->SendMotorEnable(
+            i,
+            canEnable ? ntStore.motors[i].enabledSubscriber.Get(false) : false);
+    }
+
+    for (int i = 0; i < NUM_SERVOS_PER_HUB; i++) {
+        currentHub->SendServoConfiguration(
+            i, ntStore.servos[i].framePeriodSubscriber.Get(20000));
+
+        currentHub->SendServoEnable(
+            i,
+            canEnable ? ntStore.servos[i].enabledSubscriber.Get(false) : false);
+    }
+
+    currentHub->Flush();
+}
+
 void ExpansionHubState::onDeviceAdded(std::unique_ptr<eh::UvSerial> hub) {
     currentHub = std::move(hub);
+
+    ntStore.Initialize(*ntInstance, busId);
+
     ntStore.isConnectedPublisher.Set(true);
     printf("Device added\n");
     ntStore.numNacks = 0;
@@ -650,7 +949,8 @@ void ExpansionHubState::onDeviceAdded(std::unique_ptr<eh::UvSerial> hub) {
     ntStore.numCrcFailuresPublisher.Set(ntStore.numCrcFailures);
     ntStore.numMissedSendLoops = 0;
     ntStore.numMissedSendLoopsPublisher.Set(ntStore.numMissedSendLoops);
-    currentHub->SetCallbacks(&ntStore);
+    currentHub->SetCallbacks(
+        [this](bool canEnable) { sendCommands(canEnable); }, &ntStore);
 
     // TODO we only want the timer running if we have a device.
 }
@@ -667,8 +967,8 @@ void ExpansionHubState::onUpdate(bool canEnable) {
         return;
     }
 
-    if (!currentHub->packetInterfaceId.has_value()) {
-        currentHub->RunInterfacePacketId();
+    if (!currentHub->HasFinishedSynchronous()) {
+        currentHub->RunSynchronousSteps();
         return;
     }
 
@@ -695,57 +995,9 @@ void ExpansionHubState::onUpdate(bool canEnable) {
         printf("Delta time %lu\n", delta);
     }
 
-    currentHub->StartTransaction();
+    currentHub->StartTransaction(canEnable);
 
-    // Make sure keep alive is the first thing sent, its needed for recovery
-    currentHub->SendKeepAlive();
-    currentHub->GetModuleStatus();
-
-    // Do requests next
-    currentHub->SendBatteryRequest();
-    currentHub->SendBulkInput();
-
-    // We've unrolled these so we can control updates together to make
-    // sure they happen as close as possible.
-
-    // First the 4 motors, as those will get sent in the same UART request as
-    // the initial send.
-    for (int i = 0; i < NUM_MOTORS_PER_HUB; i++) {
-        currentHub->SendMotorConstantPower(
-            i, ntStore.motorPowerSubscribers[i].Get(0));
-    }
-
-    // Then the servos
-    for (int i = 0; i < NUM_SERVOS_PER_HUB; i++) {
-        currentHub->SendServoPulseWidth(
-            i, ntStore.servoPulseWidthSubscribers[i].Get(1500));
-    }
-
-    // Then the motor currents
-    for (int i = 0; i < NUM_MOTORS_PER_HUB; i++) {
-        currentHub->SendMotorCurrentRequest(i);
-    }
-
-    // Then all the things that are not expect to change, but we want to keep
-    // sending in case of reset.
-    for (int i = 0; i < NUM_MOTORS_PER_HUB; i++) {
-        currentHub->SendMotorMode(i,
-                                  ntStore.motorFloatSubscibers[i].Get(false));
-        currentHub->SendMotorEnable(
-            i,
-            canEnable ? ntStore.motorEnabledSubscribers[i].Get(false) : false);
-    }
-
-    for (int i = 0; i < NUM_SERVOS_PER_HUB; i++) {
-        currentHub->SendServoConfiguration(
-            i, ntStore.servoFramePeriodSubscribers[i].Get(20000));
-
-        currentHub->SendServoEnable(
-            i,
-            canEnable ? ntStore.servoEnabledSubscribers[i].Get(false) : false);
-    }
-
-    currentHub->Flush();
+    sendInitial();
 }
 
 static void OnDeviceRemoved(
@@ -862,7 +1114,7 @@ static void OnDeviceAdded(wpi::uv::Loop& loop,
 
     sl->serialPath = devPath;
 
-    sl->RunInterfacePacketId();
+    sl->RunSynchronousSteps();
 
     states[busNum].onDeviceAdded(std::move(sl));
 }
@@ -875,85 +1127,7 @@ bool ExpansionHubState::startUvLoop(unsigned bus,
     }
 
     busId = bus;
-
-    nt::PubSubOptions options;
-    options.sendAll = true;
-    options.keepDuplicates = true;
-    options.periodic = 0.005;
-
-    auto busIdStr = std::to_string(busId);
-
-    ntStore.batteryVoltagePublisher =
-        ntInst.GetDoubleTopic("/rhsp/" + busIdStr + "/battery")
-            .Publish(options);
-    ntStore.isConnectedPublisher =
-        ntInst.GetBooleanTopic("/rhsp/" + busIdStr + "/connected")
-            .Publish(options);
-
-    ntStore.numCrcFailuresPublisher =
-        ntInst.GetIntegerTopic("/rhsp/" + busIdStr + "/numCrcFailures")
-            .Publish(options);
-
-    ntStore.numMissedSendLoopsPublisher =
-        ntInst.GetIntegerTopic("/rhsp/" + busIdStr + "/numMissedSendLoops")
-            .Publish(options);
-
-    ntStore.numNacksPublisher =
-        ntInst.GetIntegerTopic("/rhsp/" + busIdStr + "/numNacks")
-            .Publish(options);
-
-    for (size_t i = 0; i < ntStore.encoderPublishers.size(); i++) {
-        auto iStr = std::to_string(i);
-        ntStore.encoderPublishers[i] =
-            ntInst
-                .GetIntegerTopic("/rhsp/" + busIdStr + "/motor" + iStr +
-                                 "/encoder")
-                .Publish(options);
-        ntStore.encoderVelocityPublishers[i] =
-            ntInst
-                .GetIntegerTopic("/rhsp/" + busIdStr + "/motor" + iStr +
-                                 "/encoderVelocity")
-                .Publish(options);
-        ntStore.motorCurrentPublishers[i] =
-            ntInst
-                .GetDoubleTopic("/rhsp/" + busIdStr + "/motor" + iStr +
-                                "/current")
-                .Publish(options);
-        ntStore.motorPowerSubscribers[i] =
-            ntInst
-                .GetDoubleTopic("/rhsp/" + busIdStr + "/motor" + iStr +
-                                "/power")
-                .Subscribe(0, options);
-        ntStore.motorFloatSubscibers[i] =
-            ntInst
-                .GetBooleanTopic("/rhsp/" + busIdStr + "/motor" + iStr +
-                                 "/floatOn0")
-                .Subscribe(false, options);
-        ntStore.motorEnabledSubscribers[i] =
-            ntInst
-                .GetBooleanTopic("/rhsp/" + busIdStr + "/motor" + iStr +
-                                 "/enabled")
-                .Subscribe(false, options);
-    }
-
-    for (size_t i = 0; i < ntStore.servoEnabledSubscribers.size(); i++) {
-        auto iStr = std::to_string(i);
-        ntStore.servoEnabledSubscribers[i] =
-            ntInst
-                .GetBooleanTopic("/rhsp/" + busIdStr + "/servo" + iStr +
-                                 "/enabled")
-                .Subscribe(false, options);
-        ntStore.servoFramePeriodSubscribers[i] =
-            ntInst
-                .GetIntegerTopic("/rhsp/" + busIdStr + "/servo" + iStr +
-                                 "/framePeriod")
-                .Subscribe(0, options);
-        ntStore.servoPulseWidthSubscribers[i] =
-            ntInst
-                .GetIntegerTopic("/rhsp/" + busIdStr + "/servo" + iStr +
-                                 "/pulseWidth")
-                .Subscribe(0, options);
-    }
+    ntInstance = &ntInst;
 
     return true;
 }
@@ -1040,6 +1214,7 @@ int main() {
                 sd_device_get_action(device, &action);
 
                 if (action == SD_DEVICE_BIND) {
+                    printf("Detected new device\n");
                     LoopStorage* ls = reinterpret_cast<LoopStorage*>(userdata);
                     OnDeviceAdded(*ls->loop, *ls->hubStates, device);
                 } else if (action == SD_DEVICE_REMOVE) {

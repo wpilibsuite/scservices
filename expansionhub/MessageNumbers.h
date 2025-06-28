@@ -1,7 +1,9 @@
 #pragma once
 
 enum MessageNumbers {
+    MESSAGE_UNKNOWN = 0,
     MESSAGE_DISCOVER = 0, // Must be 0
+    MESSAGE_FTDI_RESET_CONTROL,
     MESSAGE_QUERY_INTERFACE,
     MESSAGE_SERVO_ENABLE_0,
     MESSAGE_SERVO_ENABLE_1,
