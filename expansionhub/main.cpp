@@ -38,6 +38,14 @@
 #include "ReceiveStateMachine.h"
 #include "MessageNumbers.h"
 
+#include "frc/controller/PIDController.h"
+#include "frc/controller/SimpleMotorFeedforward.h"
+
+#include <units/length.h>
+#include <units/velocity.h>
+#include <units/voltage.h>
+#include <units/acceleration.h>
+
 struct robot_state {
     uint8_t tournament_type;  // 3 bits
     uint8_t system_watchdog;  // 1 bit
@@ -71,7 +79,137 @@ struct robot_state {
 
 #define MESSAGE_TIMEOUT 1000000
 
+#define PERCENTAGE_MODE 0
+#define VOLTAGE_MODE 1
+#define POSITION_PID_MODE 2
+#define VELOCITY_PID_MODE 3
+
 namespace eh {
+
+struct PidConstants {
+    nt::DoubleSubscriber pSubscriber;
+    nt::DoubleSubscriber iSubscriber;
+    nt::DoubleSubscriber dSubscriber;
+    nt::DoubleSubscriber sSubscriber;
+    nt::DoubleSubscriber vSubscriber;
+    nt::DoubleSubscriber aSubscriber;
+
+    nt::BooleanSubscriber continuousSubscriber;
+    nt::DoubleSubscriber continuousMinimumSubscriber;
+    nt::DoubleSubscriber continuousMaximumSubscriber;
+
+    inline static constexpr auto Ks = 0_V;
+    inline static constexpr auto Kv = 0_V / 1_mps;
+    inline static constexpr auto Ka = 0_V / 1_mps_sq;
+
+    frc::PIDController pidController{0, 0, 0};
+    // Yes this says meters but its unitless.
+    frc::SimpleMotorFeedforward<units::meter> feedForward{Ks, Kv, Ka};
+
+    void Initialize(const nt::NetworkTableInstance& instance,
+                    const std::string& motorNum, const std::string& busIdStr,
+                    const std::string& pidType, nt::PubSubOptions options);
+
+    double ComputeVelocity(double setpoint, double currentPosition,
+                           double currentVelocity);
+
+    double ComputePosition(double setpoint, double currentPosition,
+                           double currentVelocity);
+};
+
+double PidConstants::ComputeVelocity(double setpoint, double currentPosition,
+                                     double currentVelocity) {
+    pidController.SetPID(pSubscriber.Get(0), iSubscriber.Get(0),
+                         dSubscriber.Get(0));
+    if (continuousSubscriber.Get(false)) {
+        pidController.EnableContinuousInput(continuousMinimumSubscriber.Get(0),
+                                            continuousMaximumSubscriber.Get(0));
+    } else {
+        pidController.DisableContinuousInput();
+    }
+
+    feedForward.SetKs(units::volt_t{sSubscriber.Get(0)});
+    feedForward.SetKv(units::volt_t{vSubscriber.Get(0)} / 1_mps);
+    feedForward.SetKa(units::volt_t{aSubscriber.Get(0)} / 1_mps_sq);
+
+    return (feedForward.Calculate(units::meters_per_second_t{currentVelocity}) +
+            units::volt_t{pidController.Calculate(currentPosition, setpoint)})
+        .value();
+}
+
+double PidConstants::ComputePosition(double setpoint, double currentPosition,
+                                     double currentVelocity) {
+    pidController.SetPID(pSubscriber.Get(0), iSubscriber.Get(0),
+                         dSubscriber.Get(0));
+    if (continuousSubscriber.Get(false)) {
+        pidController.EnableContinuousInput(continuousMinimumSubscriber.Get(0),
+                                            continuousMaximumSubscriber.Get(0));
+    } else {
+        pidController.DisableContinuousInput();
+    }
+
+    feedForward.SetKs(units::volt_t{sSubscriber.Get(0)});
+    feedForward.SetKv(units::volt_t{vSubscriber.Get(0)} / 1_mps);
+    feedForward.SetKa(units::volt_t{aSubscriber.Get(0)} / 1_mps_sq);
+
+    return (feedForward.Calculate(units::meters_per_second_t{currentVelocity}) +
+            units::volt_t{pidController.Calculate(currentVelocity, setpoint)})
+        .value();
+}
+
+void PidConstants::Initialize(const nt::NetworkTableInstance& instance,
+                              const std::string& motorNum,
+                              const std::string& busIdStr,
+                              const std::string& pidType,
+                              nt::PubSubOptions options) {
+    pSubscriber = instance
+                      .GetDoubleTopic("/rhsp/" + busIdStr + "/motor" +
+                                      motorNum + "/pid/" + pidType + "/kp")
+                      .Subscribe(0, options);
+
+    iSubscriber = instance
+                      .GetDoubleTopic("/rhsp/" + busIdStr + "/motor" +
+                                      motorNum + "/pid/" + pidType + "/ki")
+                      .Subscribe(0, options);
+
+    dSubscriber = instance
+                      .GetDoubleTopic("/rhsp/" + busIdStr + "/motor" +
+                                      motorNum + "/pid/" + pidType + "/kd")
+                      .Subscribe(0, options);
+
+    aSubscriber = instance
+                      .GetDoubleTopic("/rhsp/" + busIdStr + "/motor" +
+                                      motorNum + "/pid/" + pidType + "/ka")
+                      .Subscribe(0, options);
+
+    vSubscriber = instance
+                      .GetDoubleTopic("/rhsp/" + busIdStr + "/motor" +
+                                      motorNum + "/pid/" + pidType + "/kv")
+                      .Subscribe(0, options);
+
+    sSubscriber = instance
+                      .GetDoubleTopic("/rhsp/" + busIdStr + "/motor" +
+                                      motorNum + "/pid/" + pidType + "/ks")
+                      .Subscribe(0, options);
+
+    continuousSubscriber =
+        instance
+            .GetBooleanTopic("/rhsp/" + busIdStr + "/motor" + motorNum +
+                             "/pid/" + pidType + "/continuous")
+            .Subscribe(false, options);
+
+    continuousMinimumSubscriber =
+        instance
+            .GetDoubleTopic("/rhsp/" + busIdStr + "/motor" + motorNum +
+                            "/pid/" + pidType + "/continuousMinimum")
+            .Subscribe(false, options);
+
+    continuousMaximumSubscriber =
+        instance
+            .GetDoubleTopic("/rhsp/" + busIdStr + "/motor" + motorNum +
+                            "/pid/" + pidType + "/continousMaximum")
+            .Subscribe(false, options);
+}
 
 struct MotorStore {
     nt::BooleanSubscriber enabledSubscriber;
@@ -84,12 +222,9 @@ struct MotorStore {
 
     nt::DoubleSubscriber setpointSubscriber;
 
-    nt::DoubleSubscriber pSubscriber;
-    nt::DoubleSubscriber iSubscriber;
-    nt::DoubleSubscriber dSubscriber;
-    nt::DoubleSubscriber ffSubscriber;
+    PidConstants positionPid;
+    PidConstants velocityPid;
 
-    nt::BooleanSubscriber continousSubscriber;
     nt::BooleanSubscriber reversedSubscriber;
     nt::BooleanSubscriber resetEncoderSubscriber;
 
@@ -100,77 +235,93 @@ struct MotorStore {
 
     void Initialize(const nt::NetworkTableInstance& instance, int motorNum,
                     const std::string& busIdStr, nt::PubSubOptions options);
+
+    double lastEncoderPosition{0};
+    double lastEncoderVelocity{0};
+
+    double ComputeMotorPower(double batteryVoltage);
+
+    void SetEncoder(double positionRaw, double velocityRaw);
 };
+
+void MotorStore::SetEncoder(double positionRaw, double velocityRaw) {
+    double reversed = reversedSubscriber.Get(false) ? -1.0 : 1.0;
+    double distancePerCount = distancePerCountSubscriber.Get(1.0);
+    lastEncoderPosition = positionRaw * reversed * distancePerCount;
+    // TODO does this need to be scaled
+    lastEncoderVelocity = velocityRaw * reversed * distancePerCount;
+}
+
+double MotorStore::ComputeMotorPower(double batteryVoltage) {
+    double reversed = reversedSubscriber.Get(false) ? -1.0 : 1.0;
+    if (batteryVoltage == 0) {
+        return 0;
+    }
+    double setpoint = setpointSubscriber.Get(0);
+    switch (modeSubscriber.Get(PERCENTAGE_MODE)) {
+        case VOLTAGE_MODE:
+            return (setpoint / batteryVoltage) * reversed;
+
+        case POSITION_PID_MODE:
+            return (positionPid.ComputePosition(setpoint, lastEncoderPosition, lastEncoderVelocity) / batteryVoltage) * reversed;
+
+        case VELOCITY_PID_MODE:
+            return (velocityPid.ComputeVelocity(setpoint, lastEncoderPosition, lastEncoderVelocity) / batteryVoltage) * reversed;
+
+        default:
+            return setpoint * reversed;
+    }
+}
 
 void MotorStore::Initialize(const nt::NetworkTableInstance& instance,
                             int motorNum, const std::string& busIdStr,
                             nt::PubSubOptions options) {
-    auto iStr = std::to_string(motorNum);
-    encoderPublisher =
-        instance
-            .GetDoubleTopic("/rhsp/" + busIdStr + "/motor" + iStr + "/encoder")
-            .Publish(options);
+    auto motorNumStr = std::to_string(motorNum);
+    encoderPublisher = instance
+                           .GetDoubleTopic("/rhsp/" + busIdStr + "/motor" +
+                                           motorNumStr + "/encoder")
+                           .Publish(options);
     velocityPublisher = instance
                             .GetDoubleTopic("/rhsp/" + busIdStr + "/motor" +
-                                            iStr + "/encoderVelocity")
+                                            motorNumStr + "/encoderVelocity")
                             .Publish(options);
-    currentPublisher =
-        instance
-            .GetDoubleTopic("/rhsp/" + busIdStr + "/motor" + iStr + "/current")
-            .Publish(options);
-    setpointSubscriber =
-        instance
-            .GetDoubleTopic("/rhsp/" + busIdStr + "/motor" + iStr + "/setpoint")
-            .Subscribe(0, options);
+    currentPublisher = instance
+                           .GetDoubleTopic("/rhsp/" + busIdStr + "/motor" +
+                                           motorNumStr + "/current")
+                           .Publish(options);
+    setpointSubscriber = instance
+                             .GetDoubleTopic("/rhsp/" + busIdStr + "/motor" +
+                                             motorNumStr + "/setpoint")
+                             .Subscribe(0, options);
     floatOn0Subscriber = instance
                              .GetBooleanTopic("/rhsp/" + busIdStr + "/motor" +
-                                              iStr + "/floatOn0")
+                                              motorNumStr + "/floatOn0")
                              .Subscribe(false, options);
-    enabledSubscriber =
-        instance
-            .GetBooleanTopic("/rhsp/" + busIdStr + "/motor" + iStr + "/enabled")
-            .Subscribe(false, options);
+    enabledSubscriber = instance
+                            .GetBooleanTopic("/rhsp/" + busIdStr + "/motor" +
+                                             motorNumStr + "/enabled")
+                            .Subscribe(false, options);
 
-    modeSubscriber =
-        instance
-            .GetIntegerTopic("/rhsp/" + busIdStr + "/motor" + iStr + "/mode")
-            .Subscribe(0, options);
-
-    pSubscriber =
-        instance
-            .GetDoubleTopic("/rhsp/" + busIdStr + "/motor" + iStr + "/pid/p")
-            .Subscribe(0, options);
-
-    iSubscriber =
-        instance
-            .GetDoubleTopic("/rhsp/" + busIdStr + "/motor" + iStr + "/pid/i")
-            .Subscribe(0, options);
-
-    dSubscriber =
-        instance
-            .GetDoubleTopic("/rhsp/" + busIdStr + "/motor" + iStr + "/pid/d")
-            .Subscribe(0, options);
-
-    ffSubscriber =
-        instance
-            .GetDoubleTopic("/rhsp/" + busIdStr + "/motor" + iStr + "/pid/ff")
-            .Subscribe(0, options);
-
-    continousSubscriber = instance
-                              .GetBooleanTopic("/rhsp/" + busIdStr + "/motor" +
-                                               iStr + "/pid/continous")
-                              .Subscribe(false, options);
+    modeSubscriber = instance
+                         .GetIntegerTopic("/rhsp/" + busIdStr + "/motor" +
+                                          motorNumStr + "/mode")
+                         .Subscribe(0, options);
 
     reversedSubscriber = instance
                              .GetBooleanTopic("/rhsp/" + busIdStr + "/motor" +
-                                              iStr + "/reversed")
+                                              motorNumStr + "/reversed")
                              .Subscribe(false, options);
 
     resetEncoderSubscriber =
         instance
-            .GetBooleanTopic("/rhsp/" + busIdStr + "/motor" + iStr +
+            .GetBooleanTopic("/rhsp/" + busIdStr + "/motor" + motorNumStr +
                              "/resetEncoder")
             .Subscribe(false, options);
+
+    velocityPid.Initialize(instance, motorNumStr, busIdStr, "velocity",
+                           options);
+    positionPid.Initialize(instance, motorNumStr, busIdStr, "position",
+                           options);
 }
 
 struct ServoStore {
@@ -185,25 +336,27 @@ struct ServoStore {
 void ServoStore::Initialize(const nt::NetworkTableInstance& instance,
                             int servoNum, const std::string& busIdStr,
                             nt::PubSubOptions options) {
-    auto iStr = std::to_string(servoNum);
-    enabledSubscriber =
-        instance
-            .GetBooleanTopic("/rhsp/" + busIdStr + "/servo" + iStr + "/enabled")
-            .Subscribe(false, options);
+    auto servoNumStr = std::to_string(servoNum);
+    enabledSubscriber = instance
+                            .GetBooleanTopic("/rhsp/" + busIdStr + "/servo" +
+                                             servoNumStr + "/enabled")
+                            .Subscribe(false, options);
     framePeriodSubscriber =
         instance
-            .GetIntegerTopic("/rhsp/" + busIdStr + "/servo" + iStr +
+            .GetIntegerTopic("/rhsp/" + busIdStr + "/servo" + servoNumStr +
                              "/framePeriod")
             .Subscribe(0, options);
     pulseWidthSubscriber = instance
                                .GetIntegerTopic("/rhsp/" + busIdStr + "/servo" +
-                                                iStr + "/pulseWidth")
+                                                servoNumStr + "/pulseWidth")
                                .Subscribe(0, options);
 }
 
 struct NetworkTablesStore {
     std::array<MotorStore, NUM_MOTORS_PER_HUB> motors;
     std::array<ServoStore, NUM_SERVOS_PER_HUB> servos;
+
+    double lastBattery{0};
 
     nt::DoublePublisher batteryVoltagePublisher;
 
@@ -752,48 +905,30 @@ struct UvSerial {
                     break;
                 }
 
-                double motor0Reversed =
-                    ntStore->motors[0].reversedSubscriber.Get(false) ? 1.0
-                                                                     : -1.0;
-                double motor1Reversed =
-                    ntStore->motors[1].reversedSubscriber.Get(false) ? 1.0
-                                                                     : -1.0;
-                double motor2Reversed =
-                    ntStore->motors[2].reversedSubscriber.Get(false) ? 1.0
-                                                                     : -1.0;
-                double motor3Reversed =
-                    ntStore->motors[3].reversedSubscriber.Get(false) ? 1.0
-                                                                     : -1.0;
-
-                ntStore->motors[0].encoderPublisher.Set(
-                    ReadInt32(payload.subspan(1)) * motor0Reversed);
-                ntStore->motors[1].encoderPublisher.Set(
-                    ReadInt32(payload.subspan(5)) * motor1Reversed);
-                ntStore->motors[2].encoderPublisher.Set(
-                    ReadInt32(payload.subspan(9)) * motor2Reversed);
-                ntStore->motors[3].encoderPublisher.Set(
-                    ReadInt32(payload.subspan(13)) * motor3Reversed);
-
-                ntStore->motors[0].velocityPublisher.Set(
-                    ReadInt16(payload.subspan(18)) * motor0Reversed);
-                ntStore->motors[1].velocityPublisher.Set(
-                    ReadInt16(payload.subspan(20)) * motor1Reversed);
-                ntStore->motors[2].velocityPublisher.Set(
-                    ReadInt16(payload.subspan(22)) * motor2Reversed);
-                ntStore->motors[3].velocityPublisher.Set(
-                    ReadInt16(payload.subspan(24)) * motor3Reversed);
+                ntStore->motors[0].SetEncoder(ReadInt32(payload.subspan(1)),
+                                              ReadInt16(payload.subspan(18)));
+                ntStore->motors[1].SetEncoder(ReadInt32(payload.subspan(5)),
+                                              ReadInt16(payload.subspan(20)));
+                ntStore->motors[2].SetEncoder(ReadInt32(payload.subspan(9)),
+                                              ReadInt16(payload.subspan(22)));
+                ntStore->motors[3].SetEncoder(ReadInt32(payload.subspan(13)),
+                                              ReadInt16(payload.subspan(24)));
 
                 break;
             }
-            case MESSAGE_BATTERY_VOLTAGE:
+            case MESSAGE_BATTERY_VOLTAGE: {
                 if (!ntStore) {
                     break;
                 }
 
-                ntStore->batteryVoltagePublisher.Set(ReadInt16(payload) /
-                                                     1000.0);
+                double battery = ReadInt16(payload) / 1000.0;
+
+                ntStore->lastBattery = battery;
+
+                ntStore->batteryVoltagePublisher.Set(battery);
 
                 break;
+            }
 
             case MESSAGE_MOTOR_GET_CURRENT_0:
                 if (!ntStore) {
@@ -950,16 +1085,14 @@ void ExpansionHubState::sendCommands(bool canEnable) {
     // We've unrolled these so we can control updates together to make
     // sure they happen as close as possible.
 
-    // First the 4 motors, as those will get sent in the same UART request as
-    // the initial send.
+    // First the 4 motors.
     for (int i = 0; i < NUM_MOTORS_PER_HUB; i++) {
-        double reversed =
-            ntStore.motors[i].reversedSubscriber.Get(false) ? 1.0 : -1.0;
         currentHub->SendMotorConstantPower(
-            i, ntStore.motors[i].setpointSubscriber.Get(0) * reversed);
+            i, ntStore.motors[i].ComputeMotorPower(
+                   currentHub->ntStore->lastBattery));
     }
 
-    // Then the motor currents
+    // Then get the motor currents
     for (int i = 0; i < NUM_MOTORS_PER_HUB; i++) {
         currentHub->SendMotorCurrentRequest(i);
     }
@@ -969,6 +1102,9 @@ void ExpansionHubState::sendCommands(bool canEnable) {
     for (int i = 0; i < NUM_MOTORS_PER_HUB; i++) {
         currentHub->SendMotorMode(
             i, ntStore.motors[i].floatOn0Subscriber.Get(false));
+    }
+
+    for (int i = 0; i < NUM_MOTORS_PER_HUB; i++) {
         currentHub->SendMotorEnable(
             i,
             canEnable ? ntStore.motors[i].enabledSubscriber.Get(false) : false);
@@ -977,7 +1113,9 @@ void ExpansionHubState::sendCommands(bool canEnable) {
     for (int i = 0; i < NUM_SERVOS_PER_HUB; i++) {
         currentHub->SendServoConfiguration(
             i, ntStore.servos[i].framePeriodSubscriber.Get(20000));
+    }
 
+    for (int i = 0; i < NUM_SERVOS_PER_HUB; i++) {
         currentHub->SendServoEnable(
             i,
             canEnable ? ntStore.servos[i].enabledSubscriber.Get(false) : false);

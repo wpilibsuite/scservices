@@ -27,6 +27,9 @@ public class ExpansionHubMotor {
 
   private final BooleanSubscriber hubConnectedSubscriber;
 
+  private final ExpansionHubPidConstants velocityPidConstants;
+  private final ExpansionHubPidConstants positionPidConstants;
+
   public ExpansionHubMotor(int hubNumber, int motorNumber) {
     if (hubNumber < 0 || hubNumber > 3) {
       throw new IllegalArgumentException(
@@ -85,11 +88,29 @@ public class ExpansionHubMotor {
         .getBooleanTopic("/rhsp/" + hubNumber + "/motor" + motorNumber +
             "/resetEncoder")
         .publish(options);
+
+      velocityPidConstants = new ExpansionHubPidConstants(hubNumber, motorNumber, true);
+      positionPidConstants = new ExpansionHubPidConstants(hubNumber, motorNumber, false);
   }
 
   public void setPercentagePower(double power) {
     modePublisher.set(0);
     setpointPublisher.set(power);
+  }
+
+  public void setVoltage(double voltage) {
+    modePublisher.set(1);
+    setpointPublisher.set(voltage);
+  }
+
+  public void setPositionSetpoint(double setpoint) {
+    modePublisher.set(2);
+    setpointPublisher.set(setpoint);
+  }
+
+  public void setVelocitySetpoint(double setpoint) {
+    modePublisher.set(3);
+    setpointPublisher.set(setpoint);
   }
 
   public void setEnabled(boolean enabled) {
@@ -127,4 +148,13 @@ public class ExpansionHubMotor {
   public void resetEncoder() {
     resetEncoderPublisher.set(true);
   }
+
+  public ExpansionHubPidConstants getVelocityPidConstants() {
+    return velocityPidConstants;
+  }
+
+  public ExpansionHubPidConstants getPositionPidConstants() {
+    return positionPidConstants;
+  }
+
 }
