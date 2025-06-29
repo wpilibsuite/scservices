@@ -211,13 +211,61 @@ void PidConstants::Initialize(const nt::NetworkTableInstance& instance,
             .Subscribe(false, options);
 }
 
+template <typename T>
+struct CachedCommand {
+    T subscriber;
+    std::optional<typename T::ValueType> lastAckedValue;
+    T::ValueType lastAttemptedValue;
+
+    CachedCommand() = default;
+
+    CachedCommand(const CachedCommand&) = delete;
+    CachedCommand& operator=(const CachedCommand&) = delete;
+    CachedCommand(CachedCommand&&) = delete;
+    CachedCommand& operator=(CachedCommand&&) = delete;
+
+    CachedCommand& operator=(T sub) {
+        subscriber = std::move(sub);
+        return *this;
+    }
+
+    void ForceReset() { lastAckedValue.reset(); }
+
+    void Ack() { lastAckedValue = lastAttemptedValue; }
+
+    std::optional<typename T::ValueType> Get() {
+        auto newValue = subscriber.Get();
+
+        if (newValue != lastAckedValue) {
+            lastAckedValue.reset();
+            lastAttemptedValue = newValue;
+            return newValue;
+        }
+
+        return std::nullopt;
+    }
+
+    std::optional<typename T::ValueType> GetWithCanEnable(bool canEnable) {
+        auto newValue = canEnable ? subscriber.Get() : false;
+
+        if (newValue != lastAckedValue) {
+            lastAckedValue.reset();
+            lastAttemptedValue = newValue;
+            return newValue;
+        }
+
+        return std::nullopt;
+    }
+};
+
 struct MotorStore {
-    nt::BooleanSubscriber enabledSubscriber;
+    CachedCommand<nt::BooleanSubscriber> enabledSubscriber;
+
     nt::DoublePublisher encoderPublisher;
     nt::DoublePublisher velocityPublisher;
     nt::DoublePublisher currentPublisher;
 
-    nt::BooleanSubscriber floatOn0Subscriber;
+    CachedCommand<nt::BooleanSubscriber> floatOn0Subscriber;
     nt::IntegerSubscriber modeSubscriber;
 
     nt::DoubleSubscriber setpointSubscriber;
@@ -263,10 +311,16 @@ double MotorStore::ComputeMotorPower(double batteryVoltage) {
             return (setpoint / batteryVoltage) * reversed;
 
         case POSITION_PID_MODE:
-            return (positionPid.ComputePosition(setpoint, lastEncoderPosition, lastEncoderVelocity) / batteryVoltage) * reversed;
+            return (positionPid.ComputePosition(setpoint, lastEncoderPosition,
+                                                lastEncoderVelocity) /
+                    batteryVoltage) *
+                   reversed;
 
         case VELOCITY_PID_MODE:
-            return (velocityPid.ComputeVelocity(setpoint, lastEncoderPosition, lastEncoderVelocity) / batteryVoltage) * reversed;
+            return (velocityPid.ComputeVelocity(setpoint, lastEncoderPosition,
+                                                lastEncoderVelocity) /
+                    batteryVoltage) *
+                   reversed;
 
         default:
             return setpoint * reversed;
@@ -325,9 +379,9 @@ void MotorStore::Initialize(const nt::NetworkTableInstance& instance,
 }
 
 struct ServoStore {
-    nt::BooleanSubscriber enabledSubscriber;
+    CachedCommand<nt::BooleanSubscriber> enabledSubscriber;
     nt::IntegerSubscriber pulseWidthSubscriber;
-    nt::IntegerSubscriber framePeriodSubscriber;
+    CachedCommand<nt::IntegerSubscriber> framePeriodSubscriber;
 
     void Initialize(const nt::NetworkTableInstance& instance, int servoNum,
                     const std::string& busIdStr, nt::PubSubOptions options);
@@ -345,11 +399,11 @@ void ServoStore::Initialize(const nt::NetworkTableInstance& instance,
         instance
             .GetIntegerTopic("/rhsp/" + busIdStr + "/servo" + servoNumStr +
                              "/framePeriod")
-            .Subscribe(0, options);
+            .Subscribe(20000, options);
     pulseWidthSubscriber = instance
                                .GetIntegerTopic("/rhsp/" + busIdStr + "/servo" +
                                                 servoNumStr + "/pulseWidth")
-                               .Subscribe(0, options);
+                               .Subscribe(1500, options);
 }
 
 struct NetworkTablesStore {
@@ -489,9 +543,7 @@ static constexpr uint8_t CalcChecksum(std::span<const uint8_t> buffer) {
 
 enum class SendState {
     ReadyToSend,
-    WaitingForEither,
-    WaitingForBattery,
-    WaitingForBulk,
+    WaitingForPackets,
     WaitingForFinish,
 };
 
@@ -518,13 +570,13 @@ struct UvSerial {
         return true;
     }
 
-    void SetCallbacks(std::function<void(bool)> doOnSendCommands,
+    void SetCallbacks(std::function<void(bool, bool)> doOnSendCommands,
                       NetworkTablesStore* store) {
         onSendCommands = std::move(doOnSendCommands), ntStore = store;
     }
 
     NetworkTablesStore* ntStore{nullptr};
-    std::function<void(bool)> onSendCommands;
+    std::function<void(bool, bool)> onSendCommands;
 
     void RunDiscoverInternal() {
         auto now = wpi::Now();
@@ -759,7 +811,10 @@ struct UvSerial {
         receivedCount = 0;
         lastLoop = wpi::Now();
         canEnable = canDoEnable;
-        sendState = SendState::WaitingForEither;
+        haveBattery = false;
+        haveBulk = false;
+        haveModuleStatus = false;
+        sendState = SendState::WaitingForPackets;
     }
 
     void Flush() {
@@ -784,32 +839,25 @@ struct UvSerial {
         receivedCount += dataSize;
         outstandingMessages--;
 
-        if (messageNumber == MESSAGE_BATTERY_VOLTAGE &&
-            sendState == SendState::WaitingForEither) {
-            sendState = SendState::WaitingForBulk;
-        } else if (messageNumber == MESSAGE_BULK_INPUT &&
-                   sendState == SendState::WaitingForEither) {
-            sendState = SendState::WaitingForBattery;
-        } else if ((messageNumber == MESSAGE_BATTERY_VOLTAGE &&
-                    sendState == SendState::WaitingForBattery) ||
-                   (messageNumber == MESSAGE_BULK_INPUT &&
-                    sendState == SendState::WaitingForBulk)) {
-            // Have all the data needed to start commands.
-            if (onSendCommands) {
-                onSendCommands(canEnable);
+        if (sendState == SendState::WaitingForPackets) {
+            if (haveBattery && haveBulk && haveModuleStatus) {
+                if (onSendCommands) {
+                    onSendCommands(canEnable, deviceReset);
+                }
+                sendState = SendState::WaitingForFinish;
             }
-            sendState = SendState::WaitingForFinish;
         }
+
         if (pendingWrites.empty() && outstandingMessages == 0) {
             if (sendState != SendState::WaitingForFinish) {
                 printf("Commands did not occur this loop\n");
             }
             // Done ready to send
             auto delta = wpi::Now() - lastLoop;
-            if (delta >= 18000) {
-                printf("Time to finish %ld %ld %ld\n", delta, currentCount,
-                       receivedCount);
-            }
+            // if (delta >= 18000) {
+            printf("Time to finish %ld %ld %ld\n", delta, currentCount,
+                   receivedCount);
+            // }
             sendState = SendState::ReadyToSend;
         }
     }
@@ -877,6 +925,11 @@ struct UvSerial {
         // Anything else will adjust the state advance
 
         switch (packetReferenceNumber) {
+            case MESSAGE_MODULE_STATUS:
+                haveModuleStatus = true;
+                deviceReset = (payload[0] & 0x01) != 0;
+
+                break;
             case MESSAGE_MOTOR_RESET_ENCODER_0: {
                 ntStore->motors[0].doReset = false;
 
@@ -900,10 +953,89 @@ struct UvSerial {
                 break;
             }
 
+            case MESSAGE_MOTOR_ENABLE_0:
+                ntStore->motors[0].enabledSubscriber.Ack();
+                break;
+
+            case MESSAGE_MOTOR_ENABLE_1:
+                ntStore->motors[1].enabledSubscriber.Ack();
+                break;
+
+            case MESSAGE_MOTOR_ENABLE_2:
+                ntStore->motors[2].enabledSubscriber.Ack();
+                break;
+            case MESSAGE_MOTOR_ENABLE_3:
+                ntStore->motors[3].enabledSubscriber.Ack();
+                break;
+
+            case MESSAGE_MOTOR_SET_RUN_MODE_0:
+                ntStore->motors[0].floatOn0Subscriber.Ack();
+                break;
+
+            case MESSAGE_MOTOR_SET_RUN_MODE_1:
+                ntStore->motors[1].floatOn0Subscriber.Ack();
+                break;
+
+            case MESSAGE_MOTOR_SET_RUN_MODE_2:
+
+                ntStore->motors[2].floatOn0Subscriber.Ack();
+                break;
+
+            case MESSAGE_MOTOR_SET_RUN_MODE_3:
+                ntStore->motors[3].floatOn0Subscriber.Ack();
+                break;
+
+            case MESSAGE_SERVO_CONFIGURATION_0:
+                ntStore->servos[0].framePeriodSubscriber.Ack();
+                break;
+
+            case MESSAGE_SERVO_CONFIGURATION_1:
+                ntStore->servos[1].framePeriodSubscriber.Ack();
+                break;
+
+            case MESSAGE_SERVO_CONFIGURATION_2:
+                ntStore->servos[2].framePeriodSubscriber.Ack();
+                break;
+
+            case MESSAGE_SERVO_CONFIGURATION_3:
+                ntStore->servos[3].framePeriodSubscriber.Ack();
+                break;
+
+            case MESSAGE_SERVO_CONFIGURATION_4:
+                ntStore->servos[4].framePeriodSubscriber.Ack();
+                break;
+
+            case MESSAGE_SERVO_CONFIGURATION_5:
+                ntStore->servos[5].framePeriodSubscriber.Ack();
+                break;
+
+            case MESSAGE_SERVO_ENABLE_0:
+                ntStore->servos[0].enabledSubscriber.Ack();
+                break;
+
+            case MESSAGE_SERVO_ENABLE_1:
+                ntStore->servos[1].enabledSubscriber.Ack();
+                break;
+
+            case MESSAGE_SERVO_ENABLE_2:
+                ntStore->servos[2].enabledSubscriber.Ack();
+                break;
+
+            case MESSAGE_SERVO_ENABLE_3:
+
+                ntStore->servos[3].enabledSubscriber.Ack();
+                break;
+
+            case MESSAGE_SERVO_ENABLE_4:
+                ntStore->servos[4].enabledSubscriber.Ack();
+                break;
+
+            case MESSAGE_SERVO_ENABLE_5:
+                ntStore->servos[5].enabledSubscriber.Ack();
+                break;
+
             case MESSAGE_BULK_INPUT: {
-                if (!ntStore) {
-                    break;
-                }
+                haveBulk = true;
 
                 ntStore->motors[0].SetEncoder(ReadInt32(payload.subspan(1)),
                                               ReadInt16(payload.subspan(18)));
@@ -917,9 +1049,7 @@ struct UvSerial {
                 break;
             }
             case MESSAGE_BATTERY_VOLTAGE: {
-                if (!ntStore) {
-                    break;
-                }
+                haveBattery = true;
 
                 double battery = ReadInt16(payload) / 1000.0;
 
@@ -1010,10 +1140,14 @@ struct UvSerial {
     std::string serialPath;
     uint64_t lastLoop;
     bool canEnable{false};
+    bool deviceReset{false};
 
     bool configuredFtdiReset{false};
 
     SendState sendState = SendState::ReadyToSend;
+    bool haveBulk{false};
+    bool haveBattery{false};
+    bool haveModuleStatus{false};
 };
 }  // namespace eh
 
@@ -1040,7 +1174,7 @@ struct ExpansionHubState {
 
     void sendInitial();
 
-    void sendCommands(bool canEnable);
+    void sendCommands(bool canEnable, bool deviceReset);
 
     bool startUvLoop(unsigned bus, const nt::NetworkTableInstance& ntInst,
                      wpi::uv::Loop& loop);
@@ -1081,9 +1215,21 @@ void ExpansionHubState::sendInitial() {
     currentHub->Flush();
 }
 
-void ExpansionHubState::sendCommands(bool canEnable) {
+void ExpansionHubState::sendCommands(bool canEnable, bool deviceReset) {
     // We've unrolled these so we can control updates together to make
     // sure they happen as close as possible.
+
+    if (deviceReset) {
+        for (int i = 0; i < NUM_MOTORS_PER_HUB; i++) {
+            ntStore.motors[i].enabledSubscriber.ForceReset();
+            ntStore.motors[i].floatOn0Subscriber.ForceReset();
+        }
+
+        for (int i = 0; i < NUM_SERVOS_PER_HUB; i++) {
+            ntStore.servos[i].enabledSubscriber.ForceReset();
+            ntStore.servos[i].framePeriodSubscriber.ForceReset();
+        }
+    }
 
     // First the 4 motors.
     for (int i = 0; i < NUM_MOTORS_PER_HUB; i++) {
@@ -1100,25 +1246,33 @@ void ExpansionHubState::sendCommands(bool canEnable) {
     // Then all the things that are not expect to change, but we want to keep
     // sending in case of reset.
     for (int i = 0; i < NUM_MOTORS_PER_HUB; i++) {
-        currentHub->SendMotorMode(
-            i, ntStore.motors[i].floatOn0Subscriber.Get(false));
+        auto sendFloatOn0 = ntStore.motors[i].floatOn0Subscriber.Get();
+        if (sendFloatOn0.has_value()) {
+            currentHub->SendMotorMode(i, *sendFloatOn0);
+        }
     }
 
     for (int i = 0; i < NUM_MOTORS_PER_HUB; i++) {
-        currentHub->SendMotorEnable(
-            i,
-            canEnable ? ntStore.motors[i].enabledSubscriber.Get(false) : false);
+        auto sendEnable =
+            ntStore.motors[i].enabledSubscriber.GetWithCanEnable(canEnable);
+        if (sendEnable.has_value()) {
+            currentHub->SendMotorEnable(i, *sendEnable);
+        }
     }
 
     for (int i = 0; i < NUM_SERVOS_PER_HUB; i++) {
-        currentHub->SendServoConfiguration(
-            i, ntStore.servos[i].framePeriodSubscriber.Get(20000));
+        auto servoConfig = ntStore.servos[i].framePeriodSubscriber.Get();
+        if (servoConfig.has_value()) {
+            currentHub->SendServoConfiguration(i, *servoConfig);
+        }
     }
 
     for (int i = 0; i < NUM_SERVOS_PER_HUB; i++) {
-        currentHub->SendServoEnable(
-            i,
-            canEnable ? ntStore.servos[i].enabledSubscriber.Get(false) : false);
+        auto sendEnable =
+            ntStore.servos[i].enabledSubscriber.GetWithCanEnable(canEnable);
+        if (sendEnable.has_value()) {
+            currentHub->SendServoEnable(i, *sendEnable);
+        }
     }
 
     currentHub->Flush();
@@ -1137,8 +1291,22 @@ void ExpansionHubState::onDeviceAdded(std::unique_ptr<eh::UvSerial> hub) {
     ntStore.numCrcFailuresPublisher.Set(ntStore.numCrcFailures);
     ntStore.numMissedSendLoops = 0;
     ntStore.numMissedSendLoopsPublisher.Set(ntStore.numMissedSendLoops);
+
+    for (int i = 0; i < NUM_MOTORS_PER_HUB; i++) {
+        ntStore.motors[i].enabledSubscriber.ForceReset();
+        ntStore.motors[i].floatOn0Subscriber.ForceReset();
+    }
+
+    for (int i = 0; i < NUM_SERVOS_PER_HUB; i++) {
+        ntStore.servos[i].enabledSubscriber.ForceReset();
+        ntStore.servos[i].framePeriodSubscriber.ForceReset();
+    }
+
     currentHub->SetCallbacks(
-        [this](bool canEnable) { sendCommands(canEnable); }, &ntStore);
+        [this](bool canEnable, bool deviceReset) {
+            sendCommands(canEnable, deviceReset);
+        },
+        &ntStore);
 
     // TODO we only want the timer running if we have a device.
 }
