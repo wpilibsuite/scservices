@@ -420,6 +420,8 @@ struct NetworkTablesStore {
     nt::IntegerPublisher numCrcFailuresPublisher;
     nt::IntegerPublisher numMissedSendLoopsPublisher;
 
+    nt::IntegerPublisher transactionTimePublisher;
+
     uint64_t numNacks{0};
     uint64_t numCrcFailures{0};
     uint64_t numMissedSendLoops{0};
@@ -447,6 +449,10 @@ void NetworkTablesStore::Initialize(const nt::NetworkTableInstance& instance,
     for (int i = 0; i < static_cast<int>(servos.size()); i++) {
         servos[i].Initialize(instance, i, busIdStr, options);
     }
+
+    transactionTimePublisher =
+        instance.GetIntegerTopic("/rhsp/" + busIdStr + "/transactionTime")
+            .Publish(options);
 
     batteryVoltagePublisher =
         instance.GetDoubleTopic("/rhsp/" + busIdStr + "/battery")
@@ -854,10 +860,11 @@ struct UvSerial {
             }
             // Done ready to send
             auto delta = wpi::Now() - lastLoop;
-            // if (delta >= 18000) {
-            printf("Time to finish %ld %ld %ld\n", delta, currentCount,
-                   receivedCount);
-            // }
+            ntStore->transactionTimePublisher.Set(delta);
+            // // if (delta >= 18000) {
+            // printf("Time to finish %ld %ld %ld\n", delta, currentCount,
+            //        receivedCount);
+            // // }
             sendState = SendState::ReadyToSend;
         }
     }
@@ -1636,7 +1643,7 @@ int main() {
             }
         });
 
-        sendTimer->Start(wpi::uv::Timer::Time{20}, wpi::uv::Timer::Time{20});
+        sendTimer->Start(wpi::uv::Timer::Time{10}, wpi::uv::Timer::Time{10});
 
         // Enumerate everything for initial checking
 
