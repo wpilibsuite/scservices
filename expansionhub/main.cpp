@@ -133,7 +133,7 @@ double PidConstants::ComputeVelocity(double setpoint, double currentPosition,
     feedForward.SetKa(units::volt_t{aSubscriber.Get(0)} / 1_mps_sq);
 
     return (feedForward.Calculate(units::meters_per_second_t{currentVelocity}) +
-            units::volt_t{pidController.Calculate(currentPosition, setpoint)})
+            units::volt_t{pidController.Calculate(currentVelocity, setpoint)})
         .value();
 }
 
@@ -153,7 +153,7 @@ double PidConstants::ComputePosition(double setpoint, double currentPosition,
     feedForward.SetKa(units::volt_t{aSubscriber.Get(0)} / 1_mps_sq);
 
     return (feedForward.Calculate(units::meters_per_second_t{currentVelocity}) +
-            units::volt_t{pidController.Calculate(currentVelocity, setpoint)})
+            units::volt_t{pidController.Calculate(currentPosition, setpoint)})
         .value();
 }
 
@@ -294,10 +294,16 @@ struct MotorStore {
 
 void MotorStore::SetEncoder(double positionRaw, double velocityRaw) {
     double reversed = reversedSubscriber.Get(false) ? -1.0 : 1.0;
-    double distancePerCount = distancePerCountSubscriber.Get(1.0);
+    double distancePerCount = distancePerCountSubscriber.Get(0);
+    if (distancePerCount == 0) {
+        distancePerCount = 1;
+    }
     lastEncoderPosition = positionRaw * reversed * distancePerCount;
     // TODO does this need to be scaled
     lastEncoderVelocity = velocityRaw * reversed * distancePerCount;
+
+    encoderPublisher.Set(lastEncoderPosition);
+    velocityPublisher.Set(lastEncoderVelocity);
 }
 
 double MotorStore::ComputeMotorPower(double batteryVoltage) {
@@ -365,6 +371,12 @@ void MotorStore::Initialize(const nt::NetworkTableInstance& instance,
                              .GetBooleanTopic("/rhsp/" + busIdStr + "/motor" +
                                               motorNumStr + "/reversed")
                              .Subscribe(false, options);
+
+    distancePerCountSubscriber =
+        instance
+            .GetDoubleTopic("/rhsp/" + busIdStr + "/motor" + motorNumStr +
+                            "/distancePerCount")
+            .Subscribe(0, options);
 
     resetEncoderSubscriber =
         instance
