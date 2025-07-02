@@ -1,5 +1,7 @@
 package frc.robot;
 
+import static edu.wpi.first.units.Units.Volts;
+
 import edu.wpi.first.networktables.BooleanPublisher;
 import edu.wpi.first.networktables.BooleanSubscriber;
 import edu.wpi.first.networktables.DoublePublisher;
@@ -7,6 +9,7 @@ import edu.wpi.first.networktables.DoubleSubscriber;
 import edu.wpi.first.networktables.IntegerPublisher;
 import edu.wpi.first.networktables.NetworkTableInstance;
 import edu.wpi.first.networktables.PubSubOption;
+import edu.wpi.first.units.measure.Voltage;
 import edu.wpi.first.wpilibj.SystemServer;
 
 public class ExpansionHubMotor {
@@ -98,9 +101,9 @@ public class ExpansionHubMotor {
     setpointPublisher.set(power);
   }
 
-  public void setVoltage(double voltage) {
+  public void setVoltage(Voltage voltage) {
     modePublisher.set(1);
-    setpointPublisher.set(voltage);
+    setpointPublisher.set(voltage.in(Volts));
   }
 
   public void setPositionSetpoint(double setpoint) {
