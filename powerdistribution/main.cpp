@@ -142,7 +142,7 @@ bool CanState::startUvLoop(unsigned bus, const nt::NetworkTableInstance& ntInst,
     }
 
     ifreq ifr;
-    std::snprintf(ifr.ifr_name, sizeof(ifr.ifr_name), "can%u", busId);
+    std::snprintf(ifr.ifr_name, sizeof(ifr.ifr_name), "can_s%u", busId);
 
     if (ioctl(socketHandle, SIOCGIFINDEX, &ifr) == -1) {
         return false;
