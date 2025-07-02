@@ -12,21 +12,22 @@
 
 #include <wpinet/EventLoopRunner.h>
 #include <wpinet/uv/Poll.h>
+#include <wpinet/uv/Timer.h>
 
 #include "networktables/NetworkTableInstance.h"
-#include "networktables/RawTopic.h"
 #include "networktables/IntegerTopic.h"
 
 #define NUM_CAN_BUSES 5
 
-static constexpr uint32_t deviceTypeMask = 0x3F000000;
-static constexpr uint32_t powerDistributionFilter = 0x08000000;
+// Robot Controller, NI, 1023 API Id
+static constexpr uint32_t crossMessageId = 0x101FFF8;
+static constexpr uint32_t crossMessageMask = 0x1FFFFFF8;
 
 struct CanState {
     int socketHandle{-1};
-    nt::IntegerPublisher deviceIdPublisher;
-    std::array<nt::RawPublisher, 4> framePublishers;
+    nt::IntegerPublisher crossDetectPublisher;
     unsigned busId{0};
+    uint32_t crossedBusses = 0;
 
     ~CanState() {
         if (socketHandle != -1) {
@@ -34,65 +35,17 @@ struct CanState {
         }
     }
 
-    void handleCanFrame(const canfd_frame& frame);
-    void handlePowerFrame(const canfd_frame& frame);
+    void handleCanFrame(const can_frame& frame);
     bool startUvLoop(unsigned bus, const nt::NetworkTableInstance& ntInst,
                      wpi::uv::Loop& loop);
 };
 
-void CanState::handleCanFrame(const canfd_frame& frame) {
-    // Can't support FD frames
-    if (frame.flags & CANFD_FDF) {
-        return;
-    }
+void CanState::handleCanFrame(const can_frame& frame) {
+    uint32_t deviceId = (frame.can_id & ~crossMessageId) & 0x7;
 
-    // Looking for Device Type 8 or 9.
-    // That will tell us what we're handling
-    uint32_t maskedDeviceType = frame.can_id & deviceTypeMask;
+    crossedBusses |= (1 << deviceId);
 
-    if (maskedDeviceType == powerDistributionFilter) {
-        handlePowerFrame(frame);
-    }
-}
-
-void CanState::handlePowerFrame(const canfd_frame& frame) {
-    uint16_t apiId = (frame.can_id >> 6) & 0x3FF;
-
-    int frameNum = 0;
-    uint32_t deviceId = frame.can_id & 0x1FFF003F;
-
-    if (frame.can_id & 0x10000) {
-        // Rev Frame
-        if (apiId < 0x60 || apiId > 0x63) {
-            // Not valid
-            return;
-        }
-
-        frameNum = apiId - 0x60;
-    } else {
-        // CTRE frame
-        if (apiId == 0x5D) {
-            // Special case
-            frameNum = 3;
-        } else if (apiId < 0x50 || apiId > 0x52) {
-            // Not valid
-            return;
-        } else {
-            frameNum = apiId - 0x50;
-        }
-    }
-
-    deviceIdPublisher.Set(deviceId);
-
-    std::span<const uint8_t> frameSpan = {
-        reinterpret_cast<const uint8_t*>(frame.data), frame.len};
-
-    if (frameNum < 0 || frameNum >= static_cast<int>(framePublishers.size())) {
-        printf("BUGBUG logic error invalid frame number\n");
-        return;
-    }
-
-    framePublishers[frameNum].Set(frameSpan);
+    crossDetectPublisher.Set(crossedBusses);
 }
 
 bool CanState::startUvLoop(unsigned bus, const nt::NetworkTableInstance& ntInst,
@@ -103,22 +56,11 @@ bool CanState::startUvLoop(unsigned bus, const nt::NetworkTableInstance& ntInst,
 
     busId = bus;
 
-    nt::PubSubOptions options;
-    options.sendAll = true;
-    options.keepDuplicates = true;
-    options.periodic = 0.005;
-
     auto busIdStr = std::to_string(busId);
 
-    for (size_t i = 0; i < framePublishers.size(); i++) {
-        auto iStr = std::to_string(i);
-        framePublishers[i] =
-            ntInst.GetRawTopic("/pd/" + busIdStr + "/frame" + iStr)
-                .Publish("pd", options);
-    }
-
-    deviceIdPublisher =
-        ntInst.GetIntegerTopic("/pd/" + busIdStr + "/deviceid").Publish();
+    crossDetectPublisher =
+        ntInst.GetIntegerTopic("/cancross/" + busIdStr).Publish();
+    crossDetectPublisher.Set(crossedBusses);
 
     socketHandle =
         socket(PF_CAN, SOCK_RAW | SOCK_NONBLOCK | SOCK_CLOEXEC, CAN_RAW);
@@ -127,13 +69,9 @@ bool CanState::startUvLoop(unsigned bus, const nt::NetworkTableInstance& ntInst,
         return false;
     }
 
-    // Filter to PD device type.
-    // Both mfg types have the "4" bit set. They just
-    // differ on the 1 bit. So a single filter can be used,
-    // ignoring that bit.
-    struct can_filter filter {
-        .can_id = 0x08040000 | CAN_EFF_FLAG,
-        .can_mask = 0x1FFE0000 | CAN_EFF_FLAG,
+    struct can_filter filter{
+        .can_id = crossMessageId | CAN_EFF_FLAG,
+        .can_mask = crossMessageMask | CAN_EFF_FLAG,
     };
 
     if (setsockopt(socketHandle, SOL_CAN_RAW, CAN_RAW_FILTER, &filter,
@@ -142,7 +80,7 @@ bool CanState::startUvLoop(unsigned bus, const nt::NetworkTableInstance& ntInst,
     }
 
     ifreq ifr;
-    std::snprintf(ifr.ifr_name, sizeof(ifr.ifr_name), "can_s%u", busId);
+    std::snprintf(ifr.ifr_name, sizeof(ifr.ifr_name), "can%u", busId);
 
     if (ioctl(socketHandle, SIOCGIFINDEX, &ifr) == -1) {
         return false;
@@ -163,12 +101,12 @@ bool CanState::startUvLoop(unsigned bus, const nt::NetworkTableInstance& ntInst,
         return false;
     }
 
-    poll->pollEvent.connect([this, fd = socketHandle](int mask) {
+    poll->pollEvent.connect([this](int mask) {
         if (mask & UV_READABLE) {
-            canfd_frame frame;
-            int rVal = read(fd, &frame, sizeof(frame));
+            can_frame frame;
+            int rVal = read(socketHandle, &frame, sizeof(frame));
 
-            if (rVal != CAN_MTU && rVal != CANFD_MTU) {
+            if (rVal != CAN_MTU) {
                 // TODO Error handling, do we need to reopen the socket?
                 return;
             }
@@ -178,21 +116,39 @@ bool CanState::startUvLoop(unsigned bus, const nt::NetworkTableInstance& ntInst,
                 return;
             }
 
-            if (rVal == CANFD_MTU) {
-                frame.flags = CANFD_FDF;
-            }
-
             handleCanFrame(frame);
         }
     });
 
+    auto timer = wpi::uv::Timer::Create(loop);
+    if (!timer) {
+        return false;
+    }
+
+    timer->timeout.connect([this]() {
+        // If we didn't have a cross last iteration, write the value.
+        if (crossedBusses == 0) {
+            crossDetectPublisher.Set(crossedBusses);
+        }
+        crossedBusses = 0;
+
+        can_frame frame;
+        std::memset(&frame, 0, sizeof(frame));
+        frame.can_id = crossMessageId | busId | CAN_EFF_FLAG;
+        write(socketHandle, &frame, sizeof(frame));
+        // TODO do we need to error here?
+    });
+
     poll->Start(UV_READABLE);
+
+    // Write every 5 seconds.
+    timer->Start(wpi::uv::Timer::Time{100}, wpi::uv::Timer::Time{5000});
 
     return true;
 }
 
 int main() {
-    printf("Starting PowerDistributionDaemon\n");
+    printf("Starting CanCrossStreamDetectorDaemon\n");
     printf("\tBuild Hash: %s\n", MRC_GetGitHash());
     printf("\tBuild Timestamp: %s\n", MRC_GetBuildTimestamp());
 
@@ -208,7 +164,7 @@ int main() {
 
     auto ntInst = nt::NetworkTableInstance::Create();
     ntInst.SetServer({"localhost"}, 6810);
-    ntInst.StartClient("PowerDistributionDaemon");
+    ntInst.StartClient("CanCrossStreamDetectorDaemon");
 
     wpi::EventLoopRunner loopRunner;
 
