@@ -68,21 +68,21 @@ struct ExpansionHubState {
         }
     }
 
-    void onUpdate(bool canEnable);
+    void OnUpdate(bool canEnable);
 
-    void sendInitial();
+    void SendInitial();
 
-    void sendCommands(bool canEnable, bool deviceReset);
+    void SendCommands(bool canEnable, bool deviceReset);
 
-    bool startUvLoop(unsigned bus, const nt::NetworkTableInstance& ntInst,
+    bool StartUvLoop(unsigned bus, const nt::NetworkTableInstance& ntInst,
                      wpi::uv::Loop& loop);
 
-    void onDeviceAdded(std::unique_ptr<eh::ExpansionHubSerial> hub);
+    void OnDeviceAdded(std::unique_ptr<eh::ExpansionHubSerial> hub);
 
-    void onDeviceRemoved(std::string_view port);
+    void OnDeviceRemoved(std::string_view port);
 };
 
-void ExpansionHubState::sendInitial() {
+void ExpansionHubState::SendInitial() {
     // Make sure keep alive is the first thing sent, its needed for recovery
     currentHub->SendKeepAlive();
     currentHub->GetModuleStatus();
@@ -113,7 +113,7 @@ void ExpansionHubState::sendInitial() {
     currentHub->Flush();
 }
 
-void ExpansionHubState::sendCommands(bool canEnable, bool deviceReset) {
+void ExpansionHubState::SendCommands(bool canEnable, bool deviceReset) {
     // We've unrolled these so we can control updates together to make
     // sure they happen as close as possible.
 
@@ -175,7 +175,7 @@ void ExpansionHubState::sendCommands(bool canEnable, bool deviceReset) {
     currentHub->Flush();
 }
 
-void ExpansionHubState::onDeviceAdded(std::unique_ptr<eh::ExpansionHubSerial> hub) {
+void ExpansionHubState::OnDeviceAdded(std::unique_ptr<eh::ExpansionHubSerial> hub) {
     currentHub = std::move(hub);
 
     ntStore.Initialize(*ntInstance, busId);
@@ -201,21 +201,21 @@ void ExpansionHubState::onDeviceAdded(std::unique_ptr<eh::ExpansionHubSerial> hu
 
     currentHub->SetCallbacks(
         [this](bool canEnable, bool deviceReset) {
-            sendCommands(canEnable, deviceReset);
+            SendCommands(canEnable, deviceReset);
         },
         &ntStore);
 
     // TODO we only want the timer running if we have a device.
 }
 
-void ExpansionHubState::onDeviceRemoved(std::string_view path) {
+void ExpansionHubState::OnDeviceRemoved(std::string_view path) {
     if (currentHub && path == currentHub->SerialPath()) {
         ntStore.isConnectedPublisher.Set(false);
         currentHub.reset();
     }
 }
 
-void ExpansionHubState::onUpdate(bool canEnable) {
+void ExpansionHubState::OnUpdate(bool canEnable) {
     if (!currentHub) {
         return;
     }
@@ -248,7 +248,7 @@ void ExpansionHubState::onUpdate(bool canEnable) {
 
     currentHub->StartTransaction(canEnable);
 
-    sendInitial();
+    SendInitial();
 }
 
 static void OnDeviceRemoved(
@@ -257,7 +257,7 @@ static void OnDeviceRemoved(
     std::string_view path = devPath;
 
     for (auto&& i : states) {
-        i.onDeviceRemoved(path);
+        i.OnDeviceRemoved(path);
     }
 }
 
@@ -281,10 +281,10 @@ static void OnDeviceAdded(wpi::uv::Loop& loop,
 
     sl->RunSynchronousSteps();
 
-    states[busNum].onDeviceAdded(std::move(sl));
+    states[busNum].OnDeviceAdded(std::move(sl));
 }
 
-bool ExpansionHubState::startUvLoop(unsigned bus,
+bool ExpansionHubState::StartUvLoop(unsigned bus,
                                     const nt::NetworkTableInstance& ntInst,
                                     wpi::uv::Loop& loop) {
     if (bus >= NUM_USB_BUSES) {
@@ -345,7 +345,7 @@ int main() {
                          &usbMonitor, &enabledState](wpi::uv::Loop& loop) {
         loopStorage.loop = &loop;
         for (size_t i = 0; i < states.size(); i++) {
-            success = states[i].startUvLoop(i, ntInst, loop);
+            success = states[i].StartUvLoop(i, ntInst, loop);
             if (!success) {
                 return;
             }
@@ -376,7 +376,7 @@ int main() {
             bool system_watchdog = enabledState.IsEnabled();
 
             for (auto&& dev : states) {
-                dev.onUpdate(system_watchdog);
+                dev.OnUpdate(system_watchdog);
             }
         });
 
