@@ -29,7 +29,7 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 option(WITH_NTCORE "Include ntcore" ON)
 option(WITH_JAVA "Include java and JNI in the build" OFF)
 option(WITH_CSCORE "Build cscore (needs OpenCV)" OFF)
-option(WITH_WPIMATH "Build wpimath" OFF)
+option(WITH_WPIMATH "Build wpimath" ON)
 option(WITH_WPILIB "Build hal, wpilibc/j, and myRobot (needs OpenCV)" OFF)
 option(WITH_OLD_COMMANDS "Build old commands" OFF)
 option(WITH_EXAMPLES "Build examples" OFF)
@@ -94,11 +94,12 @@ add_subdirectory(radio)
 
 if (MRC_BUILD)
 add_subdirectory(powerdistribution)
+add_subdirectory(expansionhub)
 endif()
 
 if (MRC_BUILD)
 install(
-    TARGETS RadioDaemon PowerDistributionDaemon
+    TARGETS RadioDaemon PowerDistributionDaemon ExpansionHubDaemon
     RUNTIME DESTINATION bin
     LIBRARY DESTINATION lib
     ARCHIVE DESTINATION lib
