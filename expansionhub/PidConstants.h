@@ -41,11 +41,7 @@ struct PidConstants {
                     const std::string& motorNum, const std::string& busIdStr,
                     const std::string& pidType, nt::PubSubOptions options);
 
-    double ComputeVelocity(double setpoint, double currentPosition,
-                           double currentVelocity);
-
-    double ComputePosition(double setpoint, double currentPosition,
-                           double currentVelocity);
+    double Compute(double setpoint, double measurement);
 };
 
 }  // namespace eh

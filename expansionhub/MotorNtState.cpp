@@ -34,14 +34,12 @@ double MotorNtState::ComputeMotorPower(double batteryVoltage) {
             return (setpoint / batteryVoltage) * reversed;
 
         case POSITION_PID_MODE:
-            return (positionPid.ComputePosition(setpoint, lastEncoderPosition,
-                                                lastEncoderVelocity) /
+            return (positionPid.Compute(setpoint, lastEncoderPosition) /
                     batteryVoltage) *
                    reversed;
 
         case VELOCITY_PID_MODE:
-            return (velocityPid.ComputeVelocity(setpoint, lastEncoderPosition,
-                                                lastEncoderVelocity) /
+            return (velocityPid.Compute(setpoint, lastEncoderVelocity) /
                     batteryVoltage) *
                    reversed;
 
@@ -51,8 +49,8 @@ double MotorNtState::ComputeMotorPower(double batteryVoltage) {
 }
 
 void MotorNtState::Initialize(const nt::NetworkTableInstance& instance,
-                            int motorNum, const std::string& busIdStr,
-                            nt::PubSubOptions options) {
+                              int motorNum, const std::string& busIdStr,
+                              nt::PubSubOptions options) {
     auto motorNumStr = std::to_string(motorNum);
     encoderPublisher = instance
                            .GetDoubleTopic("/rhsp/" + busIdStr + "/motor" +
