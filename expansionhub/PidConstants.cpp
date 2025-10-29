@@ -4,8 +4,7 @@
 
 using namespace eh;
 
-double PidConstants::ComputeVelocity(double setpoint, double currentPosition,
-                                     double currentVelocity) {
+double PidConstants::Compute(double setpoint, double measurement) {
     pidController.SetPID(pSubscriber.Get(0), iSubscriber.Get(0),
                          dSubscriber.Get(0));
     if (continuousSubscriber.Get(false)) {
@@ -19,28 +18,8 @@ double PidConstants::ComputeVelocity(double setpoint, double currentPosition,
     feedForward.SetKv(units::volt_t{vSubscriber.Get(0)} / 1_mps);
     feedForward.SetKa(units::volt_t{aSubscriber.Get(0)} / 1_mps_sq);
 
-    return (feedForward.Calculate(units::meters_per_second_t{currentVelocity}) +
-            units::volt_t{pidController.Calculate(currentVelocity, setpoint)})
-        .value();
-}
-
-double PidConstants::ComputePosition(double setpoint, double currentPosition,
-                                     double currentVelocity) {
-    pidController.SetPID(pSubscriber.Get(0), iSubscriber.Get(0),
-                         dSubscriber.Get(0));
-    if (continuousSubscriber.Get(false)) {
-        pidController.EnableContinuousInput(continuousMinimumSubscriber.Get(0),
-                                            continuousMaximumSubscriber.Get(0));
-    } else {
-        pidController.DisableContinuousInput();
-    }
-
-    feedForward.SetKs(units::volt_t{sSubscriber.Get(0)});
-    feedForward.SetKv(units::volt_t{vSubscriber.Get(0)} / 1_mps);
-    feedForward.SetKa(units::volt_t{aSubscriber.Get(0)} / 1_mps_sq);
-
-    return (feedForward.Calculate(units::meters_per_second_t{currentVelocity}) +
-            units::volt_t{pidController.Calculate(currentPosition, setpoint)})
+    return (feedForward.Calculate(units::meters_per_second_t{setpoint}) +
+            units::volt_t{pidController.Calculate(measurement, setpoint)})
         .value();
 }
 
