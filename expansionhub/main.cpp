@@ -129,10 +129,23 @@ void ExpansionHubState::SendCommands(bool canEnable, bool deviceReset) {
         }
     }
 
-    // First the 4 motors.
+    // Compute motor powers
+    std::pair<double, int> motorPowers[NUM_MOTORS_PER_HUB];
     for (int i = 0; i < NUM_MOTORS_PER_HUB; i++) {
-        currentHub->SendMotorConstantPower(
-            i, ntStore.motors[i].ComputeMotorPower(ntStore.lastBattery));
+        motorPowers[i] =
+            ntStore.motors[i].ComputeMotorPower(ntStore.lastBattery);
+    }
+
+    // Then send the 4 motors.
+    for (int i = 0; i < NUM_MOTORS_PER_HUB; i++) {
+        if (motorPowers[i].second < 0) {
+            currentHub->SendMotorConstantPower(i, motorPowers[i].first);
+        } else if (motorPowers[i].second < 4) {
+            // TODO, determine if a follower is following a follower, and what to do
+            currentHub->SendMotorConstantPower(i, motorPowers[motorPowers[i].second].first);
+        } else {
+            currentHub->SendMotorConstantPower(i, 0.0);
+        }
     }
 
     // Then get the motor currents
@@ -175,7 +188,8 @@ void ExpansionHubState::SendCommands(bool canEnable, bool deviceReset) {
     currentHub->Flush();
 }
 
-void ExpansionHubState::OnDeviceAdded(std::unique_ptr<eh::ExpansionHubSerial> hub) {
+void ExpansionHubState::OnDeviceAdded(
+    std::unique_ptr<eh::ExpansionHubSerial> hub) {
     currentHub = std::move(hub);
 
     ntStore.Initialize(*ntInstance, busId);
@@ -275,7 +289,8 @@ static void OnDeviceAdded(wpi::uv::Loop& loop,
         return;
     }
 
-    std::unique_ptr<eh::ExpansionHubSerial> sl = std::make_unique<eh::ExpansionHubSerial>();
+    std::unique_ptr<eh::ExpansionHubSerial> sl =
+        std::make_unique<eh::ExpansionHubSerial>();
     bool isInit = sl->Initialize(loop, ret, devPath);
     printf("initialized %d\n", isInit ? 1 : 0);
 
@@ -341,8 +356,8 @@ int main() {
     };
 
     bool success = false;
-    loopRunner.ExecSync([&success, &states, &loopStorage, &ntInst,
-                         &usbMonitor, &enabledState](wpi::uv::Loop& loop) {
+    loopRunner.ExecSync([&success, &states, &loopStorage, &ntInst, &usbMonitor,
+                         &enabledState](wpi::uv::Loop& loop) {
         loopStorage.loop = &loop;
         for (size_t i = 0; i < states.size(); i++) {
             success = states[i].StartUvLoop(i, ntInst, loop);

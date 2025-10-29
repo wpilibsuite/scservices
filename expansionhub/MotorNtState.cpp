@@ -6,6 +6,7 @@
 #define VOLTAGE_MODE 1
 #define POSITION_PID_MODE 2
 #define VELOCITY_PID_MODE 3
+#define FOLLOWER_MODE 4
 
 using namespace eh;
 
@@ -23,28 +24,31 @@ void MotorNtState::SetEncoder(double positionRaw, double velocityRaw) {
     velocityPublisher.Set(lastEncoderVelocity);
 }
 
-double MotorNtState::ComputeMotorPower(double batteryVoltage) {
+std::pair<double, int> MotorNtState::ComputeMotorPower(double batteryVoltage) {
     double reversed = reversedSubscriber.Get(false) ? -1.0 : 1.0;
     if (batteryVoltage == 0) {
-        return 0;
+        return {0.0, -1};
     }
     double setpoint = setpointSubscriber.Get(0);
     switch (modeSubscriber.Get(PERCENTAGE_MODE)) {
         case VOLTAGE_MODE:
-            return (setpoint / batteryVoltage) * reversed;
+            return {(setpoint / batteryVoltage) * reversed, -1};
 
         case POSITION_PID_MODE:
-            return (positionPid.Compute(setpoint, lastEncoderPosition) /
+            return {(positionPid.Compute(setpoint, lastEncoderPosition) /
                     batteryVoltage) *
-                   reversed;
+                   reversed, -1};
 
         case VELOCITY_PID_MODE:
-            return (velocityPid.Compute(setpoint, lastEncoderVelocity) /
+            return {(velocityPid.Compute(setpoint, lastEncoderVelocity) /
                     batteryVoltage) *
-                   reversed;
+                   reversed, -1};
+
+        case FOLLOWER_MODE:
+            return {0.0, static_cast<int>(setpoint)};
 
         default:
-            return setpoint * reversed;
+            return {setpoint * reversed, -1};
     }
 }
 
