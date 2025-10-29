@@ -5,6 +5,7 @@
 #include "networktables/DoubleTopic.h"
 #include "PidConstants.h"
 #include "CachedCommand.h"
+#include <utility>
 
 namespace eh {
 
@@ -37,7 +38,7 @@ struct MotorNtState {
     double lastEncoderPosition{0};
     double lastEncoderVelocity{0};
 
-    double ComputeMotorPower(double batteryVoltage);
+    std::pair<double, int> ComputeMotorPower(double batteryVoltage);
 
     void SetEncoder(double positionRaw, double velocityRaw);
 };
