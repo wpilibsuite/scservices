@@ -1,19 +1,19 @@
 #pragma once
 
-#include "networktables/BooleanTopic.h"
-#include "networktables/IntegerTopic.h"
+#include "wpi/nt/BooleanTopic.hpp"
+#include "wpi/nt/IntegerTopic.hpp"
 #include "CachedCommand.h"
 #include <string>
 
 namespace eh {
 
 struct ServoNtState {
-    CachedCommand<nt::BooleanSubscriber> enabledSubscriber;
-    nt::IntegerSubscriber pulseWidthSubscriber;
-    CachedCommand<nt::IntegerSubscriber> framePeriodSubscriber;
+    CachedCommand<wpi::nt::BooleanSubscriber> enabledSubscriber;
+    wpi::nt::IntegerSubscriber pulseWidthSubscriber;
+    CachedCommand<wpi::nt::IntegerSubscriber> framePeriodSubscriber;
 
-    void Initialize(const nt::NetworkTableInstance& instance, int servoNum,
-                    const std::string& busIdStr, nt::PubSubOptions options);
+    void Initialize(const wpi::nt::NetworkTableInstance& instance, int servoNum,
+                    const std::string& busIdStr, wpi::nt::PubSubOptions options);
 };
 
 }

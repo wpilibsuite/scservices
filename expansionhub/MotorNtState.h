@@ -1,8 +1,8 @@
 #pragma once
 
-#include "networktables/BooleanTopic.h"
-#include "networktables/IntegerTopic.h"
-#include "networktables/DoubleTopic.h"
+#include "wpi/nt/BooleanTopic.hpp"
+#include "wpi/nt/IntegerTopic.hpp"
+#include "wpi/nt/DoubleTopic.hpp"
 #include "PidConstants.h"
 #include "CachedCommand.h"
 #include <utility>
@@ -10,30 +10,30 @@
 namespace eh {
 
 struct MotorNtState {
-    CachedCommand<nt::BooleanSubscriber> enabledSubscriber;
+    CachedCommand<wpi::nt::BooleanSubscriber> enabledSubscriber;
 
-    nt::DoublePublisher encoderPublisher;
-    nt::DoublePublisher velocityPublisher;
-    nt::DoublePublisher currentPublisher;
+    wpi::nt::DoublePublisher encoderPublisher;
+    wpi::nt::DoublePublisher velocityPublisher;
+    wpi::nt::DoublePublisher currentPublisher;
 
-    CachedCommand<nt::BooleanSubscriber> floatOn0Subscriber;
-    nt::IntegerSubscriber modeSubscriber;
+    CachedCommand<wpi::nt::BooleanSubscriber> floatOn0Subscriber;
+    wpi::nt::IntegerSubscriber modeSubscriber;
 
-    nt::DoubleSubscriber setpointSubscriber;
+    wpi::nt::DoubleSubscriber setpointSubscriber;
 
     PidConstants positionPid;
     PidConstants velocityPid;
 
-    nt::BooleanSubscriber reversedSubscriber;
-    nt::BooleanSubscriber resetEncoderSubscriber;
+    wpi::nt::BooleanSubscriber reversedSubscriber;
+    wpi::nt::BooleanSubscriber resetEncoderSubscriber;
 
-    nt::DoubleSubscriber distancePerCountSubscriber;
+    wpi::nt::DoubleSubscriber distancePerCountSubscriber;
 
     bool doReset{false};
     int64_t lastResetTime{0};
 
-    void Initialize(const nt::NetworkTableInstance& instance, int motorNum,
-                    const std::string& busIdStr, nt::PubSubOptions options);
+    void Initialize(const wpi::nt::NetworkTableInstance& instance, int motorNum,
+                    const std::string& busIdStr, wpi::nt::PubSubOptions options);
 
     double lastEncoderPosition{0};
     double lastEncoderVelocity{0};

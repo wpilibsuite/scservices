@@ -6,7 +6,7 @@
 
 using namespace eh;
 
-bool SystemDUsbMonitor::Initialize(wpi::uv::Loop* loop) {
+bool SystemDUsbMonitor::Initialize(wpi::net::uv::Loop* loop) {
     uvLoop = loop;
     sd_device_monitor* devMonitor = nullptr;
     int res = sd_device_monitor_new(&devMonitor);

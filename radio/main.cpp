@@ -5,28 +5,27 @@
 
 #include "version.h"
 
-#include <wpinet/EventLoopRunner.h>
-#include <wpinet/uv/Timer.h>
-#include <wpinet/uv/Tcp.h>
-#include "wpinet/HttpUtil.h"
-#include "wpinet/ParallelTcpConnector.h"
-#include "wpi/Logger.h"
+#include <wpi/net/EventLoopRunner.hpp>
+#include <wpi/net/uv/Timer.hpp>
+#include <wpi/net/uv/Tcp.hpp>
+#include "wpi/net/HttpUtil.hpp"
+#include "wpi/net/ParallelTcpConnector.hpp"
+#include "wpi/util/Logger.hpp"
 
-#include "networktables/NetworkTableInstance.h"
-#include "networktables/StringTopic.h"
-#include "wpi/StringExtras.h"
+#include "wpi/nt/NetworkTableInstance.hpp"
+#include "wpi/nt/StringTopic.hpp"
+#include "wpi/util/StringExtras.hpp"
 
 struct DataStorage {
-    wpi::Logger logger;
-    nt::StringSubscriber teamSubscriber;
+    wpi::util::Logger logger;
+    wpi::nt::StringSubscriber teamSubscriber;
 
-    std::shared_ptr<wpi::ParallelTcpConnector> tcpConnector;
-    std::weak_ptr<wpi::uv::Tcp> tcpConn;
+    std::shared_ptr<wpi::net::ParallelTcpConnector> tcpConnector;
+    std::weak_ptr<wpi::net::uv::Tcp> tcpConn;
     std::optional<uint16_t> oldTeamNumber;
 };
 
-static bool startUvLoop(wpi::uv::Loop& loop, DataStorage& instData);
-
+static bool startUvLoop(wpi::net::uv::Loop& loop, DataStorage& instData);
 int main() {
     printf("Starting RadioDaemon\n");
     printf("\tBuild Hash: %s\n", MRC_GetGitHash());
@@ -40,7 +39,7 @@ int main() {
     sigprocmask(SIG_BLOCK, &signal_set, nullptr);
 #endif
 
-    auto ntInst = nt::NetworkTableInstance::Create();
+    auto ntInst = wpi::nt::NetworkTableInstance::Create();
     ntInst.SetServer({"localhost"}, 6810);
     ntInst.StartClient("RadioDaemon");
 
@@ -48,10 +47,10 @@ int main() {
 
     instData.teamSubscriber = ntInst.GetStringTopic("/sys/team").Subscribe("");
 
-    wpi::EventLoopRunner loopRunner;
+    wpi::net::EventLoopRunner loopRunner;
 
     bool success = false;
-    loopRunner.ExecSync([&success, &instData](wpi::uv::Loop& loop) {
+    loopRunner.ExecSync([&success, &instData](wpi::net::uv::Loop& loop) {
         success = startUvLoop(loop, instData);
     });
 
@@ -70,7 +69,7 @@ int main() {
     }
     loopRunner.Stop();
     ntInst.StopClient();
-    nt::NetworkTableInstance::Destroy(ntInst);
+    wpi::nt::NetworkTableInstance::Destroy(ntInst);
 
     return 0;
 }
@@ -97,15 +96,15 @@ int main() {
 
 // }
 
-static bool startUvLoop(wpi::uv::Loop& loop, DataStorage& instData) {
-    auto timer = wpi::uv::Timer::Create(loop);
+static bool startUvLoop(wpi::net::uv::Loop& loop, DataStorage& instData) {
+    auto timer = wpi::net::uv::Timer::Create(loop);
     if (!timer) {
         return false;
     }
 
-    // instData.tcpConnector = wpi::ParallelTcpConnector::Create(
-    //     loop, wpi::uv::Timer::Time{2000}, instData.logger,
-    //     [](wpi::uv::Tcp& tcp) {
+    // instData.tcpConnector = wpi::net::ParallelTcpConnector::Create(
+    //     loop, wpi::net::uv::Timer::Time{2000}, instData.logger,
+    //     [](wpi::net::uv::Tcp& tcp) {
     //     },
     //     true);
 

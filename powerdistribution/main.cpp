@@ -10,12 +10,12 @@
 #include <net/if.h>
 #include <sys/ioctl.h>
 
-#include <wpinet/EventLoopRunner.h>
-#include <wpinet/uv/Poll.h>
+#include <wpi/net/EventLoopRunner.hpp>
+#include <wpi/net/uv/Poll.hpp>
 
-#include "networktables/NetworkTableInstance.h"
-#include "networktables/RawTopic.h"
-#include "networktables/IntegerTopic.h"
+#include "wpi/nt/NetworkTableInstance.hpp"
+#include "wpi/nt/RawTopic.hpp"
+#include "wpi/nt/IntegerTopic.hpp"
 
 #define NUM_CAN_BUSES 2
 
@@ -24,8 +24,8 @@ static constexpr uint32_t powerDistributionFilter = 0x08000000;
 
 struct CanState {
     int socketHandle{-1};
-    nt::IntegerPublisher deviceIdPublisher;
-    std::array<nt::RawPublisher, 4> framePublishers;
+    wpi::nt::IntegerPublisher deviceIdPublisher;
+    std::array<wpi::nt::RawPublisher, 4> framePublishers;
     unsigned busId{0};
 
     ~CanState() {
@@ -36,8 +36,8 @@ struct CanState {
 
     void handleCanFrame(const canfd_frame& frame);
     void handlePowerFrame(const canfd_frame& frame);
-    bool startUvLoop(unsigned bus, const nt::NetworkTableInstance& ntInst,
-                     wpi::uv::Loop& loop);
+    bool startUvLoop(unsigned bus, const wpi::nt::NetworkTableInstance& ntInst,
+                     wpi::net::uv::Loop& loop);
 };
 
 void CanState::handleCanFrame(const canfd_frame& frame) {
@@ -95,15 +95,15 @@ void CanState::handlePowerFrame(const canfd_frame& frame) {
     framePublishers[frameNum].Set(frameSpan);
 }
 
-bool CanState::startUvLoop(unsigned bus, const nt::NetworkTableInstance& ntInst,
-                           wpi::uv::Loop& loop) {
+bool CanState::startUvLoop(unsigned bus, const wpi::nt::NetworkTableInstance& ntInst,
+                           wpi::net::uv::Loop& loop) {
     if (bus >= NUM_CAN_BUSES) {
         return false;
     }
 
     busId = bus;
 
-    nt::PubSubOptions options;
+    wpi::nt::PubSubOptions options;
     options.sendAll = true;
     options.keepDuplicates = true;
     options.periodic = 0.005;
@@ -158,7 +158,7 @@ bool CanState::startUvLoop(unsigned bus, const nt::NetworkTableInstance& ntInst,
         return false;
     }
 
-    auto poll = wpi::uv::Poll::Create(loop, socketHandle);
+    auto poll = wpi::net::uv::Poll::Create(loop, socketHandle);
     if (!poll) {
         return false;
     }
@@ -206,14 +206,13 @@ int main() {
 
     std::array<CanState, NUM_CAN_BUSES> states;
 
-    auto ntInst = nt::NetworkTableInstance::Create();
+    auto ntInst = wpi::nt::NetworkTableInstance::Create();
     ntInst.SetServer({"localhost"}, 6810);
     ntInst.StartClient("PowerDistributionDaemon");
 
-    wpi::EventLoopRunner loopRunner;
-
+    wpi::net::EventLoopRunner loopRunner;
     bool success = false;
-    loopRunner.ExecSync([&success, &states, &ntInst](wpi::uv::Loop& loop) {
+    loopRunner.ExecSync([&success, &states, &ntInst](wpi::net::uv::Loop& loop) {
         for (size_t i = 0; i < states.size(); i++) {
             success = states[i].startUvLoop(i, ntInst, loop);
             if (!success) {
@@ -236,7 +235,7 @@ int main() {
 #endif
     }
     ntInst.StopClient();
-    nt::NetworkTableInstance::Destroy(ntInst);
+    wpi::nt::NetworkTableInstance::Destroy(ntInst);
 
     return 0;
 }

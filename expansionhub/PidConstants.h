@@ -2,30 +2,30 @@
 
 #include <string>
 
-#include <units/length.h>
-#include <units/velocity.h>
-#include <units/voltage.h>
-#include <units/acceleration.h>
+#include <wpi/units/length.hpp>
+#include <wpi/units/velocity.hpp>
+#include <wpi/units/voltage.hpp>
+#include <wpi/units/acceleration.hpp>
 
-#include "frc/controller/PIDController.h"
-#include "frc/controller/SimpleMotorFeedforward.h"
+#include "wpi/math/controller/PIDController.hpp"
+#include "wpi/math/controller/SimpleMotorFeedforward.hpp"
 
-#include "networktables/BooleanTopic.h"
-#include "networktables/DoubleTopic.h"
+#include "wpi/nt/BooleanTopic.hpp"
+#include "wpi/nt/DoubleTopic.hpp"
 
 namespace eh {
 
 struct PidConstants {
-    nt::DoubleSubscriber pSubscriber;
-    nt::DoubleSubscriber iSubscriber;
-    nt::DoubleSubscriber dSubscriber;
-    nt::DoubleSubscriber sSubscriber;
-    nt::DoubleSubscriber vSubscriber;
-    nt::DoubleSubscriber aSubscriber;
+    wpi::nt::DoubleSubscriber pSubscriber;
+    wpi::nt::DoubleSubscriber iSubscriber;
+    wpi::nt::DoubleSubscriber dSubscriber;
+    wpi::nt::DoubleSubscriber sSubscriber;
+    wpi::nt::DoubleSubscriber vSubscriber;
+    wpi::nt::DoubleSubscriber aSubscriber;
 
-    nt::BooleanSubscriber continuousSubscriber;
-    nt::DoubleSubscriber continuousMinimumSubscriber;
-    nt::DoubleSubscriber continuousMaximumSubscriber;
+    wpi::nt::BooleanSubscriber continuousSubscriber;
+    wpi::nt::DoubleSubscriber continuousMinimumSubscriber;
+    wpi::nt::DoubleSubscriber continuousMaximumSubscriber;
 
     inline static constexpr auto Ks = 0_V;
     inline static constexpr auto Kv = 0_V / 1_mps;
@@ -33,13 +33,13 @@ struct PidConstants {
 
     inline static constexpr auto Period = 12_ms;
 
-    frc::PIDController pidController{0, 0, 0, Period};
+    wpi::math::PIDController pidController{0, 0, 0, Period};
     // Yes this says meters but its unitless.
-    frc::SimpleMotorFeedforward<units::meter> feedForward{Ks, Kv, Ka};
+    wpi::math::SimpleMotorFeedforward<wpi::units::meter> feedForward{Ks, Kv, Ka};
 
-    void Initialize(const nt::NetworkTableInstance& instance,
+    void Initialize(const wpi::nt::NetworkTableInstance& instance,
                     const std::string& motorNum, const std::string& busIdStr,
-                    const std::string& pidType, nt::PubSubOptions options);
+                    const std::string& pidType, wpi::nt::PubSubOptions options);
 
     double Compute(double setpoint, double measurement);
 };
