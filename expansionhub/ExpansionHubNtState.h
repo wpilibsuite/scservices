@@ -15,21 +15,21 @@ struct ExpansionHubNtState {
 
     double lastBattery{0};
 
-    nt::DoublePublisher batteryVoltagePublisher;
+    wpi::nt::DoublePublisher batteryVoltagePublisher;
 
-    nt::BooleanPublisher isConnectedPublisher;
+    wpi::nt::BooleanPublisher isConnectedPublisher;
 
-    nt::IntegerPublisher numNacksPublisher;
-    nt::IntegerPublisher numCrcFailuresPublisher;
-    nt::IntegerPublisher numMissedSendLoopsPublisher;
+    wpi::nt::IntegerPublisher numNacksPublisher;
+    wpi::nt::IntegerPublisher numCrcFailuresPublisher;
+    wpi::nt::IntegerPublisher numMissedSendLoopsPublisher;
 
-    nt::IntegerPublisher transactionTimePublisher;
+    wpi::nt::IntegerPublisher transactionTimePublisher;
 
     uint64_t numNacks{0};
     uint64_t numCrcFailures{0};
     uint64_t numMissedSendLoops{0};
 
-    void Initialize(const nt::NetworkTableInstance& instance, int deviceNum);
+    void Initialize(const wpi::nt::NetworkTableInstance& instance, int deviceNum);
 };
 
 }  // namespace eh

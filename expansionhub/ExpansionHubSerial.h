@@ -1,7 +1,7 @@
 #pragma once
 
-#include "wpinet/uv/Loop.h"
-#include "wpinet/uv/Poll.h"
+#include "wpi/net/uv/Loop.hpp"
+#include "wpi/net/uv/Poll.hpp"
 #include "functional"
 #include "ExpansionHubNtState.h"
 #include "MessageNumbers.h"
@@ -21,7 +21,7 @@ struct ExpansionHubSerial {
     ExpansionHubSerial() = default;
     ~ExpansionHubSerial() noexcept;
 
-    bool Initialize(wpi::uv::Loop& loop, int fd, std::string path);
+    bool Initialize(wpi::net::uv::Loop& loop, int fd, std::string path);
 
     void SetCallbacks(std::function<void(bool, bool)> doOnSendCommands,
                       ExpansionHubNtState* store);
@@ -75,7 +75,7 @@ struct ExpansionHubSerial {
 
     uint8_t readBuf[256];
     int serialFd{-1};
-    std::weak_ptr<wpi::uv::Poll> serialPoll;
+    std::weak_ptr<wpi::net::uv::Poll> serialPoll;
     eh::ReceiveStateMachine stateMachine{
         [this](auto data, auto crc) { HandlePayload(data, crc); }};
 

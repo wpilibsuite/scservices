@@ -8,7 +8,7 @@
 
 #define NUM_USB_BUSES 4
 
-namespace wpi::uv {
+namespace wpi::net::uv {
 class Loop;
 }
 
@@ -16,12 +16,11 @@ namespace eh {
 
 class SystemDUsbMonitor {
    public:
-    SystemDUsbMonitor(std::function<void(wpi::uv::Loop&, int, const std::string&)> added,
+    SystemDUsbMonitor(std::function<void(wpi::net::uv::Loop&, int, const std::string&)> added,
                       std::function<void(const std::string&)> removed)
         : OnAdded{std::move(added)}, OnRemoved{std::move(removed)} {}
 
-    bool Initialize(wpi::uv::Loop* loop);
-
+    bool Initialize(wpi::net::uv::Loop* loop);
     int GetFd() { return fd; }
 
     void HandleEvent();
@@ -29,7 +28,7 @@ class SystemDUsbMonitor {
     void DoInitialCheck();
 
    private:
-    std::function<void(wpi::uv::Loop&, int, const std::string&)> OnAdded;
+    std::function<void(wpi::net::uv::Loop&, int, const std::string&)> OnAdded;
     std::function<void(const std::string&)> OnRemoved;
 
     void OnDeviceAdded(sd_device* device);
@@ -40,7 +39,7 @@ class SystemDUsbMonitor {
     int DeviceHandler(sd_device* device);
 
     int fd = -1;
-    wpi::uv::Loop* uvLoop = nullptr;
+    wpi::net::uv::Loop* uvLoop = nullptr;
     sd_event* sdEvent = nullptr;
 };
 

@@ -1,16 +1,16 @@
 #include "ExpansionHubNtState.h"
 
-#include "networktables/NetworkTableInstance.h"
+#include "wpi/nt/NetworkTableInstance.hpp"
 
 using namespace eh;
 
-void ExpansionHubNtState::Initialize(const nt::NetworkTableInstance& instance,
+void ExpansionHubNtState::Initialize(const wpi::nt::NetworkTableInstance& instance,
                                     int deviceNum) {
     if (isConnectedPublisher) {
         return;
     }
 
-    nt::PubSubOptions options;
+    wpi::nt::PubSubOptions options;
     options.sendAll = true;
     options.keepDuplicates = true;
     options.periodic = 0.005;

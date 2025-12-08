@@ -1,8 +1,10 @@
 #include "PidConstants.h"
 
-#include "networktables/NetworkTableInstance.h"
+#include "wpi/nt/NetworkTableInstance.hpp"
 
 using namespace eh;
+
+using namespace wpi;
 
 double PidConstants::Compute(double setpoint, double measurement) {
     pidController.SetPID(pSubscriber.Get(0), iSubscriber.Get(0),
@@ -23,11 +25,11 @@ double PidConstants::Compute(double setpoint, double measurement) {
         .value();
 }
 
-void PidConstants::Initialize(const nt::NetworkTableInstance& instance,
+void PidConstants::Initialize(const wpi::nt::NetworkTableInstance& instance,
                               const std::string& motorNum,
                               const std::string& busIdStr,
                               const std::string& pidType,
-                              nt::PubSubOptions options) {
+                              wpi::nt::PubSubOptions options) {
     pSubscriber = instance
                       .GetDoubleTopic("/rhsp/" + busIdStr + "/motor" +
                                       motorNum + "/pid/" + pidType + "/kp")

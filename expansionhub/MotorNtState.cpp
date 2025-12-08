@@ -1,6 +1,6 @@
 #include "MotorNtState.h"
 
-#include "networktables/NetworkTableInstance.h"
+#include "wpi/nt/NetworkTableInstance.hpp"
 
 #define PERCENTAGE_MODE 0
 #define VOLTAGE_MODE 1
@@ -36,13 +36,15 @@ std::pair<double, int> MotorNtState::ComputeMotorPower(double batteryVoltage) {
 
         case POSITION_PID_MODE:
             return {(positionPid.Compute(setpoint, lastEncoderPosition) /
-                    batteryVoltage) *
-                   reversed, -1};
+                     batteryVoltage) *
+                        reversed,
+                    -1};
 
         case VELOCITY_PID_MODE:
             return {(velocityPid.Compute(setpoint, lastEncoderVelocity) /
-                    batteryVoltage) *
-                   reversed, -1};
+                     batteryVoltage) *
+                        reversed,
+                    -1};
 
         case FOLLOWER_MODE:
             return {0.0, static_cast<int>(setpoint)};
@@ -52,9 +54,9 @@ std::pair<double, int> MotorNtState::ComputeMotorPower(double batteryVoltage) {
     }
 }
 
-void MotorNtState::Initialize(const nt::NetworkTableInstance& instance,
+void MotorNtState::Initialize(const wpi::nt::NetworkTableInstance& instance,
                               int motorNum, const std::string& busIdStr,
-                              nt::PubSubOptions options) {
+                              wpi::nt::PubSubOptions options) {
     auto motorNumStr = std::to_string(motorNum);
     encoderPublisher = instance
                            .GetDoubleTopic("/rhsp/" + busIdStr + "/motor" +
