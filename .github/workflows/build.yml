@@ -36,7 +36,7 @@ jobs:
             runtests: false
             container: wpilib/ubuntu-base:24.04
             builddir: buildmrc
-            flags: "-DCMAKE_TOOLCHAIN_FILE=systemcore-toolchain.cmake -DUSE_SYSTEM_WPILIB=ON"
+            flags: "-DCMAKE_TOOLCHAIN_FILE=$PWD/systemcore-toolchain.cmake -DUSE_SYSTEM_WPILIB=ON"
             preset: mrc
 
     name: "Build - ${{ matrix.name }}"
@@ -62,6 +62,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: 'recursive'
+
+      - name: Install wpilib into toolchain
+        if: matrix.need_toolchain == true
+        run: |
+          cp datalog-config.cmake.in allwpilib/datalog/datalog-config.cmake.in
+          cmake -S allwpilib -B wpilib-build -G Ninja -DCMAKE_TOOLCHAIN_FILE=$PWD/systemcore-toolchain.cmake -DCMAKE_INSTALL_PREFIX="/usr" -DCMAKE_BUILD_TYPE=Release -DWITH_TESTS=OFF -DWITH_CSCORE=OFF -DWITH_NTCORE=ON -DWITH_WPIMATH=ON -DWITH_WPILIB=OFF -DWITH_EXAMPLES=OFF -DWITH_GUI=OFF -DWITH_SIMULATION_MODULES=OFF -DWITH_BENCHMARK=OFF
+          cmake --build wpilib-build
+          DESTDIR=/opt/systemcore-aarch64-toolchain/aarch64-buildroot-linux-gnu/sysroot cmake --install wpilib-build
 
       - name: configure
         run: cmake --preset ${{ matrix.preset }} ${{ matrix.flags }}
