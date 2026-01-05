@@ -69,8 +69,11 @@ jobs:
           cp datalog-config.cmake.in allwpilib/datalog/datalog-config.cmake.in
           cmake -S allwpilib -B wpilib-build -G Ninja -DCMAKE_TOOLCHAIN_FILE=$PWD/systemcore-toolchain.cmake -DCMAKE_INSTALL_PREFIX="/usr" -DCMAKE_BUILD_TYPE=Release -DWITH_TESTS=OFF -DWITH_CSCORE=OFF -DWITH_NTCORE=ON -DWITH_WPIMATH=ON -DWITH_WPILIB=OFF -DWITH_EXAMPLES=OFF -DWITH_GUI=OFF -DWITH_SIMULATION_MODULES=OFF -DWITH_BENCHMARK=OFF
           cmake --build wpilib-build
+          echo;cat wpilib-build/datalog-config.cmake;echo
           DESTDIR=/opt/systemcore-aarch64-toolchain/aarch64-buildroot-linux-gnu/sysroot cmake --install wpilib-build
-
+          # For some reason, when there's an existing installation, the way cmake installs export files deletes other things in the usr/share/foobar directories (like the foobar-config.cmake files it just installed) so do it again.
+          DESTDIR=/opt/systemcore-aarch64-toolchain/aarch64-buildroot-linux-gnu/sysroot cmake --install wpilib-build
+          rm -rf wpilib-build
       - name: configure
         run: cmake --preset ${{ matrix.preset }} ${{ matrix.flags }}
         # env:
