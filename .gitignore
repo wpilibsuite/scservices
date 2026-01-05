@@ -7,3 +7,5 @@ networktables.json
 builddroidarm/
 builddroidx64/
 install/
+.cache
+CMakeUserPresets.json
