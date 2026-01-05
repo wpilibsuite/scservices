@@ -30,6 +30,14 @@ jobs:
             builddir: buildmrc
             flags: "-DCMAKE_TOOLCHAIN_FILE=/usr/local/toolchain-config.cmake"
             preset: mrc
+          - os: ubuntu-24.04
+            name: Systemcore (system libraries)
+            need_toolchain: true
+            runtests: false
+            container: wpilib/ubuntu-base:24.04
+            builddir: buildmrc
+            flags: "-DCMAKE_TOOLCHAIN_FILE=systemcore-toolchain.cmake -DUSE_SYSTEM_WPILIB=ON"
+            preset: mrc
 
     name: "Build - ${{ matrix.name }}"
     runs-on: ${{ matrix.os }}
@@ -43,6 +51,12 @@ jobs:
 
       # - name: Install sccache
       #   uses: mozilla-actions/sccache-action@v0.0.5
+      - name: Install systemcore toolchain
+        if: matrix.need_toolchain == true
+        run: |
+          sudo apt-get update && sudo apt-get install -y file
+          curl -fsSL https://github.com/LimelightVision/systemcore-os-public/releases/download/limelightosr-alpha-9-182/systemcore-aarch64-toolchain.tar.gz | tar -xzf - -C /opt
+          cd /opt/systemcore-aarch64-toolchain && ./relocate-sdk.sh
 
       - name: Checkout repository
         uses: actions/checkout@v4
