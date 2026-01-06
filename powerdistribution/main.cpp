@@ -17,6 +17,8 @@
 #include "wpi/nt/RawTopic.hpp"
 #include "wpi/nt/IntegerTopic.hpp"
 
+#include "systemd-utils.h"
+
 #define NUM_CAN_BUSES 2
 
 static constexpr uint32_t deviceTypeMask = 0x3F000000;
@@ -226,6 +228,8 @@ int main() {
         return -1;
     }
 
+    systemd_utils::notify_ready();
+
     {
 #if defined(__linux__) && defined(MRC_DAEMON_BUILD)
         int sig = 0;
@@ -234,6 +238,9 @@ int main() {
         (void)getchar();
 #endif
     }
+
+    systemd_utils::notify_stopping();
+
     ntInst.StopClient();
     wpi::nt::NetworkTableInstance::Destroy(ntInst);
 

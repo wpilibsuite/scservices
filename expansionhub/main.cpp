@@ -48,6 +48,8 @@
 #include "EnabledState.h"
 #include "SystemDUsbMonitor.h"
 
+#include "systemd-utils.h"
+
 struct ExpansionHubState {
     uint64_t lastLoop = wpi::util::Now();
 
@@ -413,6 +415,8 @@ int main() {
         return -1;
     }
 
+    systemd_utils::notify_ready();
+
     {
 #if defined(__linux__) && defined(MRC_DAEMON_BUILD)
         int sig = 0;
@@ -421,6 +425,9 @@ int main() {
         (void)getchar();
 #endif
     }
+
+    systemd_utils::notify_stopping();
+
     ntInst.StopClient();
     wpi::nt::NetworkTableInstance::Destroy(ntInst);
 
