@@ -464,7 +464,8 @@ void ExpansionHubSerial::HandlePayload(std::span<const uint8_t> data, uint8_t cr
     switch (packetReferenceNumber) {
         case MESSAGE_MODULE_STATUS:
             haveModuleStatus = true;
-            deviceReset = (payload[0] & 0x01) != 0;
+            // A device reset should be triggered if anything is set
+            deviceReset = payload[0] != 0;
 
             break;
         case MESSAGE_MOTOR_RESET_ENCODER_0: {
