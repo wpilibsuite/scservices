@@ -2,7 +2,7 @@
 
 #include "stdio.h"
 
-#include "wpi/util/timestamp.h"
+#include "wpi/util/timestamp.hpp"
 
 #define MAX_NUM_OUTSTANDING_MESSAGES 8
 
