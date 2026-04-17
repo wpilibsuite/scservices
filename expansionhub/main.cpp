@@ -314,6 +314,7 @@ bool ExpansionHubState::StartUvLoop(unsigned bus,
 }
 
 int main() {
+    setvbuf(stdout, nullptr, _IOLBF, 0);
     printf("Starting ExpansionHubDaemon\n");
     printf("\tBuild Hash: %s\n", MRC_GetGitHash());
     printf("\tBuild Timestamp: %s\n", MRC_GetBuildTimestamp());
