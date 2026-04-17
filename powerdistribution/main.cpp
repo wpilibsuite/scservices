@@ -7,6 +7,13 @@
 
 #include <linux/can.h>
 #include <linux/can/raw.h>
+
+// CANFD_FDF was added in Linux 5.14 (https://github.com/torvalds/linux/commit/02546884221279da2725e87e35348290470363d7)
+// It is not (currently) included in the macOS cross-compilation toolchain headers; define as needed to make cross-compilation easy.
+#ifndef CANFD_FDF
+#define CANFD_FDF 0x04
+#endif
+
 #include <net/if.h>
 #include <sys/ioctl.h>
 
