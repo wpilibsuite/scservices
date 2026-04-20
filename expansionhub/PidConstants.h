@@ -35,7 +35,7 @@ struct PidConstants {
 
     wpi::math::PIDController pidController{0, 0, 0, Period};
     // Yes this says meters but its unitless.
-    wpi::math::SimpleMotorFeedforward<wpi::units::meter> feedForward{Ks, Kv, Ka};
+    wpi::math::SimpleMotorFeedforward<wpi::units::meter> feedForward{Ks, Kv, Ka, Period};
 
     void Initialize(const wpi::nt::NetworkTableInstance& instance,
                     const std::string& motorNum, const std::string& busIdStr,
