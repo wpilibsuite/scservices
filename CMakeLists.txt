@@ -95,11 +95,12 @@ add_subdirectory(radio)
 if (MRC_BUILD)
 add_subdirectory(powerdistribution)
 add_subdirectory(expansionhub)
+add_subdirectory(mcodometry)
 endif()
 
 if (MRC_BUILD)
 install(
-    TARGETS RadioDaemon PowerDistributionDaemon ExpansionHubDaemon
+    TARGETS RadioDaemon PowerDistributionDaemon ExpansionHubDaemon MotioncoreOdometryDaemon
     RUNTIME DESTINATION bin
     LIBRARY DESTINATION lib
     ARCHIVE DESTINATION lib
