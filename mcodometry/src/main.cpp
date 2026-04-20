@@ -18,8 +18,10 @@
 #include <wpi/net/uv/Poll.hpp>
 
 #include "wpi/nt/NetworkTableInstance.hpp"
-#include "wpi/nt/RawTopic.hpp"
+#include "wpi/nt/ProtobufTopic.hpp"
 #include "wpi/nt/IntegerTopic.hpp"
+
+#include "MotioncoreProto.h"
 
 #include "wpi/util/Endian.hpp"
 
@@ -32,26 +34,15 @@ static constexpr uint32_t motionCorePacketFilter =
 
 static constexpr uint32_t writeFrame = 0x010209C0;
 
-struct MotioncoreMessage {
-    uint64_t timestampUs;
-    int32_t encoderPositions[3];
-    int16_t encoderVelocities[3];
-    uint8_t pinStates;
-    uint8_t encoderWindows[3];
+struct ExtendedMotioncoreData : public mc::RawMotioncoreData {
+    std::array<uint8_t, 3> encoderWindows;
 };
-
-static_assert(sizeof(MotioncoreMessage) == 32,
-              "MotioncoreMessage must be 32 bytes");
-static_assert(offsetof(MotioncoreMessage, encoderWindows[2]) == 29,
-              "encoderWindows[2] must be at offset 29");
-static_assert(sizeof(MotioncoreMessage::encoderWindows[2]) == 1,
-              "encoderWindows[2] must be 1 byte");
 
 struct CanState {
     int socketHandle{-1};
     unsigned busId{0};
 
-    wpi::nt::RawPublisher messagePublisher;
+    wpi::nt::ProtobufPublisher<mc::RawMotioncoreData> messagePublisher;
     std::array<wpi::nt::IntegerSubscriber, 3> encoderPositionSubscribers;
     std::array<std::optional<uint64_t>, 3> lastEncoderPositionSetTimes;
 
@@ -70,7 +61,7 @@ struct CanState {
     bool startUvLoop(unsigned bus, const wpi::nt::NetworkTableInstance& ntInst,
                      wpi::net::uv::Loop& loop);
 
-    MotioncoreMessage latestMessage;
+    ExtendedMotioncoreData latestMessage;
 };
 
 void CanState::handleCanFrame(const canfd_frame& frame) {
@@ -87,22 +78,22 @@ void CanState::handleCanFrame(const canfd_frame& frame) {
     const unsigned char* dataPtr = frame.data;
     latestMessage.timestampUs = wpi::util::support::endian::readNext<uint64_t>(
         dataPtr, wpi::util::endianness::big);
-    latestMessage.encoderPositions[0] =
+    latestMessage.encoders[0].position =
         wpi::util::support::endian::readNext<int32_t>(
             dataPtr, wpi::util::endianness::big);
-    latestMessage.encoderPositions[1] =
+    latestMessage.encoders[1].position =
         wpi::util::support::endian::readNext<int32_t>(
             dataPtr, wpi::util::endianness::big);
-    latestMessage.encoderPositions[2] =
+    latestMessage.encoders[2].position =
         wpi::util::support::endian::readNext<int32_t>(
             dataPtr, wpi::util::endianness::big);
-    latestMessage.encoderVelocities[0] =
+    latestMessage.encoders[0].velocity =
         wpi::util::support::endian::readNext<int16_t>(
             dataPtr, wpi::util::endianness::big);
-    latestMessage.encoderVelocities[1] =
+    latestMessage.encoders[1].velocity =
         wpi::util::support::endian::readNext<int16_t>(
             dataPtr, wpi::util::endianness::big);
-    latestMessage.encoderVelocities[2] =
+    latestMessage.encoders[2].velocity =
         wpi::util::support::endian::readNext<int16_t>(
             dataPtr, wpi::util::endianness::big);
     latestMessage.pinStates = wpi::util::support::endian::readNext<uint8_t>(
@@ -117,8 +108,7 @@ void CanState::handleCanFrame(const canfd_frame& frame) {
         wpi::util::support::endian::readNext<uint8_t>(
             dataPtr, wpi::util::endianness::big);
 
-    messagePublisher.Set(
-        {reinterpret_cast<const uint8_t*>(&latestMessage), 30});
+    messagePublisher.Set(latestMessage);
 
     for (size_t i = 0; i < encoderPositionSubscribers.size(); i++) {
         auto newPos = encoderPositionSubscribers[i].GetAtomic(INT64_MAX);
@@ -209,8 +199,9 @@ bool CanState::startUvLoop(unsigned bus,
     options.keepDuplicates = true;
     options.sendAll = true;
 
-    messagePublisher = ntInst.GetRawTopic("/Motioncore/enc/data")
-                           .Publish("motioncoreenc", options);
+    messagePublisher =
+        ntInst.GetProtobufTopic<mc::RawMotioncoreData>("/Motioncore/enc/data")
+            .Publish(options);
 
     for (size_t i = 0; i < encoderPositionSubscribers.size(); i++) {
         auto iStr = std::to_string(i);
