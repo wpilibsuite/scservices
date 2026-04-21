@@ -37,6 +37,7 @@ struct ExpansionHubSerial {
     void Flush();
 
     std::string_view SerialPath() const { return serialPath; };
+    std::optional<uint8_t> GetAddress() const { return address; }
 
     void SendBatteryRequest();
     void SendMotorCurrentRequest(uint8_t channel);
