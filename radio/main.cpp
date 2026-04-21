@@ -16,6 +16,8 @@
 #include "wpi/nt/StringTopic.hpp"
 #include "wpi/util/StringExtras.hpp"
 
+#include "systemd-utils.h"
+
 struct DataStorage {
     wpi::util::Logger logger;
     wpi::nt::StringSubscriber teamSubscriber;
@@ -59,6 +61,8 @@ int main() {
         return -1;
     }
 
+    systemd_utils::notify_ready();
+
     {
 #if defined(__linux__) && defined(MRC_DAEMON_BUILD)
         int sig = 0;
@@ -67,6 +71,9 @@ int main() {
         (void)getchar();
 #endif
     }
+
+    systemd_utils::notify_stopping();
+
     loopRunner.Stop();
     ntInst.StopClient();
     wpi::nt::NetworkTableInstance::Destroy(ntInst);

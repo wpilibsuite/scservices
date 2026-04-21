@@ -93,6 +93,7 @@ add_subdirectory(common)
 add_subdirectory(radio)
 
 if (MRC_BUILD)
+add_subdirectory(libsystemd)
 add_subdirectory(powerdistribution)
 add_subdirectory(expansionhub)
 add_subdirectory(mcodometry)
