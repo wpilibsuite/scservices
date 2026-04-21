@@ -416,6 +416,10 @@ int main() {
         // Enumerate everything for initial checking
 
         usbMonitor.DoInitialCheck();
+
+#ifndef SYSTEMCORE
+        OnDeviceAdded(loop, states, 0, "/dev/ttyS1");
+#endif
     });
 
     if (!success) {
