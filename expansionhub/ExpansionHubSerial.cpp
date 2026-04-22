@@ -13,8 +13,26 @@
 #define DISCOVER_ID 0x7F0F
 #define DISCOVER_ADDRESS 0xFF
 
-#define MOTOR_0_ADC 8
-#define BATTERY_ADC 13
+// ADC channel definitions from https://github.com/DuckTapeAndAPrayer/DuckLynx/blob/bcbf78fd552872768e9cbedf962335d34da7de53/info/RHSP.md#get_adc--0x07
+#define ANALOG_0_VOLTAGE_ADC        0
+#define ANALOG_1_VOLTAGE_ADC        1
+#define ANALOG_2_VOLTAGE_ADC        2
+#define ANALOG_3_VOLTAGE_ADC        3
+
+#define GPIO_CURRENT_ADC            4
+#define I2C_CURRENT_ADC             5
+#define SERVO_CURRENT_ADC           6
+#define BATTERY_CURRENT_ADC         7
+
+#define MOTOR_0_CURRENT_ADC         8
+#define MOTOR_1_CURRENT_ADC         9
+#define MOTOR_2_CURRENT_ADC         10
+#define MOTOR_3_CURRENT_ADC         11
+
+#define FIVE_V_VOLTAGE_ADC          12
+#define BATTERY_VOLTAGE_ADC         13
+#define CONTROLLER_TEMPERATUE_ADC   14
+
 #define POWER_CONVERSION 32767
 
 #define MESSAGE_TIMEOUT 1000000
@@ -188,13 +206,13 @@ bool ExpansionHubSerial::HasFinishedSynchronous() {
 
 void ExpansionHubSerial::SendBatteryRequest() {
     uint16_t packetId = *packetInterfaceId + 7;
-    uint8_t buffer[2] = {BATTERY_ADC, 0};
+    uint8_t buffer[2] = {BATTERY_VOLTAGE_ADC, 0};
     SendPacket(*address, MESSAGE_BATTERY_VOLTAGE, packetId, buffer);
 }
 
 void ExpansionHubSerial::SendMotorCurrentRequest(uint8_t channel) {
     uint16_t packetId = *packetInterfaceId + 7;
-    uint8_t adcChannel = MOTOR_0_ADC + channel;
+    uint8_t adcChannel = MOTOR_0_CURRENT_ADC + channel;
     uint8_t buffer[2] = {adcChannel, 0};
     SendPacket(*address, MESSAGE_MOTOR_GET_CURRENT_0 + channel, packetId,
                buffer);
