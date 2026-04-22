@@ -602,6 +602,11 @@ void ExpansionHubSerial::HandlePayload(std::span<const uint8_t> data, uint8_t cr
             ntStore->motors[3].SetEncoder(ReadInt32(payload.subspan(13)),
                                           ReadInt16(payload.subspan(24)));
 
+            ntStore->analogPublishers[0].Set(ReadInt16(payload.subspan(26)));
+            ntStore->analogPublishers[1].Set(ReadInt16(payload.subspan(28)));
+            ntStore->analogPublishers[2].Set(ReadInt16(payload.subspan(30)));
+            ntStore->analogPublishers[3].Set(ReadInt16(payload.subspan(32)));
+
             break;
         }
         case MESSAGE_BATTERY_VOLTAGE: {
