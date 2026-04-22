@@ -24,7 +24,8 @@
         "binaryDir": "${sourceDir}/buildmrc",
         "inherits": "default",
         "cacheVariables": {
-          "MRC_BUILD": true
+          "MRC_BUILD": true,
+          "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/cmake/aarch64-linux-gnu.cmake"
         }
       }
     ],

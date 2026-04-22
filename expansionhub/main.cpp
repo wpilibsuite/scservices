@@ -154,6 +154,11 @@ void ExpansionHubState::SendCommands(bool canEnable, bool deviceReset) {
         currentHub->SendMotorCurrentRequest(i);
     }
 
+    // Then get the analog inputs
+    for (int i = 0; i < NUM_ANALOG_INPUTS_PER_HUB; i++) {
+        currentHub->SendAnalogRequest(i);
+    }
+
     // Then all the things that are not expect to change, but we want to keep
     // sending in case of reset.
     for (int i = 0; i < NUM_MOTORS_PER_HUB; i++) {
@@ -193,16 +198,10 @@ void ExpansionHubState::OnDeviceAdded(
     std::unique_ptr<eh::ExpansionHubSerial> hub) {
     currentHub = std::move(hub);
 
-    ntStore.Initialize(*ntInstance, busId);
-
-    ntStore.isConnectedPublisher.Set(true);
     printf("Device added\n");
     ntStore.numNacks = 0;
-    ntStore.numNacksPublisher.Set(ntStore.numNacks);
     ntStore.numCrcFailures = 0;
-    ntStore.numCrcFailuresPublisher.Set(ntStore.numCrcFailures);
     ntStore.numMissedSendLoops = 0;
-    ntStore.numMissedSendLoopsPublisher.Set(ntStore.numMissedSendLoops);
 
     for (int i = 0; i < NUM_MOTORS_PER_HUB; i++) {
         ntStore.motors[i].enabledSubscriber.ForceReset();
@@ -225,7 +224,9 @@ void ExpansionHubState::OnDeviceAdded(
 
 void ExpansionHubState::OnDeviceRemoved(std::string_view path) {
     if (currentHub && path == currentHub->SerialPath()) {
-        ntStore.isConnectedPublisher.Set(false);
+        if (ntStore.isConnectedPublisher) {
+            ntStore.isConnectedPublisher.Set(false);
+        }
         currentHub.reset();
     }
 }
@@ -238,6 +239,19 @@ void ExpansionHubState::OnUpdate(bool canEnable) {
     if (!currentHub->HasFinishedSynchronous()) {
         currentHub->RunSynchronousSteps();
         return;
+    }
+
+    if (!ntStore.isConnectedPublisher) {
+#ifdef SYSTEMCORE
+        int deviceId = busId;
+#else
+        int deviceId = *currentHub->GetAddress();
+#endif
+        ntStore.Initialize(*ntInstance, deviceId);
+        ntStore.isConnectedPublisher.Set(true);
+        ntStore.numNacksPublisher.Set(ntStore.numNacks);
+        ntStore.numCrcFailuresPublisher.Set(ntStore.numCrcFailures);
+        ntStore.numMissedSendLoopsPublisher.Set(ntStore.numMissedSendLoops);
     }
 
     auto now = wpi::util::Now();
@@ -314,6 +328,7 @@ bool ExpansionHubState::StartUvLoop(unsigned bus,
 }
 
 int main() {
+    setvbuf(stdout, nullptr, _IOLBF, 0);
     printf("Starting ExpansionHubDaemon\n");
     printf("\tBuild Hash: %s\n", MRC_GetGitHash());
     printf("\tBuild Timestamp: %s\n", MRC_GetBuildTimestamp());
@@ -406,6 +421,10 @@ int main() {
         // Enumerate everything for initial checking
 
         usbMonitor.DoInitialCheck();
+
+#ifndef SYSTEMCORE
+        OnDeviceAdded(loop, states, 0, "/dev/ttyS1");
+#endif
     });
 
     if (!success) {

@@ -130,11 +130,15 @@ void SystemDUsbMonitor::OnDeviceAdded(sd_device* device) {
 
     std::string_view busPathView = busPath.native();
 
+#ifdef SYSTEMCORE
+
     if (!busPathView.starts_with("3-1.")) {
         printf("Invalid bus path, \"%s\" must start with \"3-1.\"\n",
                busPath.c_str());
         return;
     }
+
+#endif
 
     int busNum = *(busPathView.end() - 1) - '1';
 
