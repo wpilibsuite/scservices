@@ -30,8 +30,8 @@ public class ExpansionHubMotor {
 
   private final BooleanSubscriber hubConnectedSubscriber;
 
-  private final ExpansionHubPidConstants velocityPidConstants;
-  private final ExpansionHubPidConstants positionPidConstants;
+  private final ExpansionHubVelocityConstants velocityPidConstants;
+  private final ExpansionHubPositionConstants positionPidConstants;
 
   public ExpansionHubMotor(int hubNumber, int motorNumber) {
     if (hubNumber < 0 || hubNumber > 3) {
@@ -92,8 +92,8 @@ public class ExpansionHubMotor {
             "/resetEncoder")
         .publish(options);
 
-      velocityPidConstants = new ExpansionHubPidConstants(hubNumber, motorNumber, true);
-      positionPidConstants = new ExpansionHubPidConstants(hubNumber, motorNumber, false);
+      velocityPidConstants = new ExpansionHubVelocityConstants(hubNumber, motorNumber);
+      positionPidConstants = new ExpansionHubPositionConstants(hubNumber, motorNumber);
   }
 
   public void setPercentagePower(double power) {
@@ -152,11 +152,11 @@ public class ExpansionHubMotor {
     resetEncoderPublisher.set(true);
   }
 
-  public ExpansionHubPidConstants getVelocityPidConstants() {
+  public ExpansionHubVelocityConstants getVelocityPidConstants() {
     return velocityPidConstants;
   }
 
-  public ExpansionHubPidConstants getPositionPidConstants() {
+  public ExpansionHubPositionConstants getPositionPidConstants() {
     return positionPidConstants;
   }
 

@@ -4,7 +4,8 @@ set(CMAKE_EXE_LINKER_FLAGS "-Wl,--allow-shlib-undefined")
 
 add_executable(ExpansionHubDaemon
     main.cpp
-    PidConstants.cpp
+    PositionController.cpp
+    VelocityController.cpp
     SerialPort.cpp
     EnabledState.cpp
     MotorNtState.cpp

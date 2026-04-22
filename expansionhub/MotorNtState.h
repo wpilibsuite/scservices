@@ -3,7 +3,8 @@
 #include "wpi/nt/BooleanTopic.hpp"
 #include "wpi/nt/IntegerTopic.hpp"
 #include "wpi/nt/DoubleTopic.hpp"
-#include "PidConstants.h"
+#include "PositionController.h"
+#include "VelocityController.h"
 #include "CachedCommand.h"
 #include <utility>
 
@@ -21,8 +22,8 @@ struct MotorNtState {
 
     wpi::nt::DoubleSubscriber setpointSubscriber;
 
-    PidConstants positionPid;
-    PidConstants velocityPid;
+    PositionController positionPid;
+    VelocityController velocityPid;
 
     wpi::nt::BooleanSubscriber reversedSubscriber;
     wpi::nt::BooleanSubscriber resetEncoderSubscriber;

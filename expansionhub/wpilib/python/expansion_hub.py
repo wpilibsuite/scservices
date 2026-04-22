@@ -2,73 +2,143 @@ import ntcore
 import wpilib
 import wpimath.units
 
-class ExpansionHubPidConstants:
-    def __init__(self, hubNumber: int, motorNumber: int, isVelocityPid: bool):
-        if hubNumber < 0 or hubNumber > 3:
-            raise ValueError("hubNumber out of range")
 
-        if motorNumber < 0 or motorNumber > 3:
-            raise ValueError("motorNumber is out of range")
+def _validate_hub_and_motor(hubNumber: int, motorNumber: int):
+    if hubNumber < 0 or hubNumber > 3:
+        raise ValueError("hubNumber out of range")
+
+    if motorNumber < 0 or motorNumber > 3:
+        raise ValueError("motorNumber is out of range")
+
+
+def _pubsub_options():
+    return ntcore.PubSubOptions(sendAll=True, keepDuplicates=True, periodic=0.005)
+
+
+class ExpansionHubVelocityConstants:
+    def __init__(self, hubNumber: int, motorNumber: int):
+        _validate_hub_and_motor(hubNumber, motorNumber)
 
         systemServer = wpilib.SystemServer.getSystemServer()
+        options = _pubsub_options()
 
-        pidType =  "velocity" if isVelocityPid else "position"
+        self.pPublisher = (
+            systemServer
+            .getDoubleTopic("/rhsp/" + str(hubNumber) + "/motor" + str(motorNumber) + "/constants/velocity/kp")
+            .publish(options)
+        )
 
-        options = ntcore.PubSubOptions(sendAll=True, keepDuplicates=True, periodic=0.005)
+        self.iPublisher = (
+            systemServer
+            .getDoubleTopic("/rhsp/" + str(hubNumber) + "/motor" + str(motorNumber) + "/constants/velocity/ki")
+            .publish(options)
+        )
 
-        self.pPublisher = (systemServer
-            .getDoubleTopic("/rhsp/" + str(hubNumber) + "/motor" + str(motorNumber) + "/pid/" + pidType + "/kp")
-            .publish(options))
+        self.dPublisher = (
+            systemServer
+            .getDoubleTopic("/rhsp/" + str(hubNumber) + "/motor" + str(motorNumber) + "/constants/velocity/kd")
+            .publish(options)
+        )
 
-        self.iPublisher = (systemServer
-            .getDoubleTopic("/rhsp/" + str(hubNumber) + "/motor" + str(motorNumber) + "/pid/" + pidType + "/ki")
-            .publish(options))
+        self.sPublisher = (
+            systemServer
+            .getDoubleTopic("/rhsp/" + str(hubNumber) + "/motor" + str(motorNumber) + "/constants/velocity/ks")
+            .publish(options)
+        )
 
-        self.dPublisher = (systemServer
-            .getDoubleTopic("/rhsp/" + str(hubNumber) + "/motor" + str(motorNumber) + "/pid/" + pidType + "/kd")
-            .publish(options))
+        self.vPublisher = (
+            systemServer
+            .getDoubleTopic("/rhsp/" + str(hubNumber) + "/motor" + str(motorNumber) + "/constants/velocity/kv")
+            .publish(options)
+        )
 
-        self.aPublisher = (systemServer
-            .getDoubleTopic("/rhsp/" + str(hubNumber) + "/motor" + str(motorNumber) + "/pid/" + pidType + "/ka")
-            .publish(options))
-
-        self.vPublisher = (systemServer
-            .getDoubleTopic("/rhsp/" + str(hubNumber) + "/motor" + str(motorNumber) + "/pid/" + pidType + "/kv")
-            .publish(options))
-
-        self.sPublisher = (systemServer
-            .getDoubleTopic("/rhsp/" + str(hubNumber) + "/motor" + str(motorNumber) + "/pid/" + pidType + "/ks")
-            .publish(options))
-
-        self.continuousPublisher = (systemServer
-            .getBooleanTopic("/rhsp/" + str(hubNumber) + "/motor" + str(motorNumber) + "/pid/" + pidType + "/continuous")
-            .publish(options))
-
-        self.continuousMinimumPublisher = (systemServer
-            .getDoubleTopic("/rhsp/" + str(hubNumber) + "/motor" + str(motorNumber) + "/pid/" + pidType + "/continuousMinimum")
-            .publish(options))
-
-        self.continuousMaximumPublisher = (systemServer
-            .getDoubleTopic("/rhsp/" + str(hubNumber) + "/motor" + str(motorNumber) + "/pid/" + pidType + "/continousMaximum")
-            .publish(options))
+        self.aPublisher = (
+            systemServer
+            .getDoubleTopic("/rhsp/" + str(hubNumber) + "/motor" + str(motorNumber) + "/constants/velocity/ka")
+            .publish(options)
+        )
 
     def setPID(self, p: float, i: float, d: float):
         self.pPublisher.set(p)
         self.iPublisher.set(i)
         self.dPublisher.set(d)
+        return self
 
     def setFF(self, s: float, v: float, a: float):
         self.sPublisher.set(s)
         self.vPublisher.set(v)
         self.aPublisher.set(a)
+        return self
 
-    def enableContinousInput(self, minimum: float, maximum: float):
+
+class ExpansionHubPositionConstants:
+    def __init__(self, hubNumber: int, motorNumber: int):
+        _validate_hub_and_motor(hubNumber, motorNumber)
+
+        systemServer = wpilib.SystemServer.getSystemServer()
+        options = _pubsub_options()
+
+        self.pPublisher = (
+            systemServer
+            .getDoubleTopic("/rhsp/" + str(hubNumber) + "/motor" + str(motorNumber) + "/constants/position/kp")
+            .publish(options)
+        )
+
+        self.iPublisher = (
+            systemServer
+            .getDoubleTopic("/rhsp/" + str(hubNumber) + "/motor" + str(motorNumber) + "/constants/position/ki")
+            .publish(options)
+        )
+
+        self.dPublisher = (
+            systemServer
+            .getDoubleTopic("/rhsp/" + str(hubNumber) + "/motor" + str(motorNumber) + "/constants/position/kd")
+            .publish(options)
+        )
+
+        self.sPublisher = (
+            systemServer
+            .getDoubleTopic("/rhsp/" + str(hubNumber) + "/motor" + str(motorNumber) + "/constants/position/ks")
+            .publish(options)
+        )
+
+        self.continuousPublisher = (
+            systemServer
+            .getBooleanTopic("/rhsp/" + str(hubNumber) + "/motor" + str(motorNumber) + "/constants/position/continuous")
+            .publish(options)
+        )
+
+        self.continuousMinimumPublisher = (
+            systemServer
+            .getDoubleTopic("/rhsp/" + str(hubNumber) + "/motor" + str(motorNumber) + "/constants/position/continuousMinimum")
+            .publish(options)
+        )
+
+        self.continuousMaximumPublisher = (
+            systemServer
+            .getDoubleTopic("/rhsp/" + str(hubNumber) + "/motor" + str(motorNumber) + "/constants/position/continuousMaximum")
+            .publish(options)
+        )
+
+    def setPID(self, p: float, i: float, d: float):
+        self.pPublisher.set(p)
+        self.iPublisher.set(i)
+        self.dPublisher.set(d)
+        return self
+
+    def setS(self, s: float):
+        self.sPublisher.set(s)
+        return self
+
+    def enableContinuousInput(self, minimum: float, maximum: float):
         self.continuousMaximumPublisher.set(maximum)
         self.continuousMinimumPublisher.set(minimum)
         self.continuousPublisher.set(True)
+        return self
 
-    def disableContinousInput(self):
+    def disableContinuousInput(self):
         self.continuousPublisher.set(False)
+        return self
 
 class ExpansionHubMotor:
     def __init__(self, hubNumber: int, motorNumber: int):
@@ -125,8 +195,8 @@ class ExpansionHubMotor:
                 "/resetEncoder")
             .publish(options))
 
-        self.velocityPidConstants = ExpansionHubPidConstants(hubNumber, motorNumber, True)
-        self.positionPidConstants = ExpansionHubPidConstants(hubNumber, motorNumber, False)
+        self.velocityPidConstants = ExpansionHubVelocityConstants(hubNumber, motorNumber)
+        self.positionPidConstants = ExpansionHubPositionConstants(hubNumber, motorNumber)
 
     def setPercentagePower(self, power: float):
         self.modePublisher.set(0)
@@ -171,10 +241,10 @@ class ExpansionHubMotor:
     def resetEncoder(self):
         self.resetEncoderPublisher.set(True)
 
-    def getVelocityPidConstants(self) -> ExpansionHubPidConstants:
+    def getVelocityPidConstants(self) -> ExpansionHubVelocityConstants:
         return self.velocityPidConstants
 
-    def getPositionPidConstants(self) -> ExpansionHubPidConstants:
+    def getPositionPidConstants(self) -> ExpansionHubPositionConstants:
         return self.positionPidConstants
 
 class ExpansionHubServo:
