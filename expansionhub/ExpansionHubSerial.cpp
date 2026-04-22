@@ -210,6 +210,13 @@ void ExpansionHubSerial::SendBatteryRequest() {
     SendPacket(*address, MESSAGE_BATTERY_VOLTAGE, packetId, buffer);
 }
 
+void ExpansionHubSerial::SendAnalogRequest(uint8_t channel) {
+    uint16_t packetId = *packetInterfaceId + 7;
+    uint8_t adcChannel = ANALOG_0_VOLTAGE_ADC + channel;
+    uint8_t buffer[2] = {adcChannel, 0};
+    SendPacket(*address, MESSAGE_ANALOG_INPUT_0 + channel, packetId, buffer);
+}
+
 void ExpansionHubSerial::SendMotorCurrentRequest(uint8_t channel) {
     uint16_t packetId = *packetInterfaceId + 7;
     uint8_t adcChannel = MOTOR_0_CURRENT_ADC + channel;
@@ -651,6 +658,15 @@ void ExpansionHubSerial::HandlePayload(std::span<const uint8_t> data, uint8_t cr
             ntStore->motors[3].currentPublisher.Set(ReadInt16(payload) /
                                                     1000.0);
             break;
+
+        case MESSAGE_ANALOG_INPUT_0:
+        case MESSAGE_ANALOG_INPUT_1:
+        case MESSAGE_ANALOG_INPUT_2:
+        case MESSAGE_ANALOG_INPUT_3: {
+            int ch = packetReferenceNumber - MESSAGE_ANALOG_INPUT_0;
+            ntStore->analogPublishers[ch].Set(ReadInt16(payload));
+            break;
+        }
 
         default:
             // printf("Unknown message number\n");

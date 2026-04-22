@@ -154,6 +154,11 @@ void ExpansionHubState::SendCommands(bool canEnable, bool deviceReset) {
         currentHub->SendMotorCurrentRequest(i);
     }
 
+    // Then get the analog inputs
+    for (int i = 0; i < NUM_ANALOG_INPUTS_PER_HUB; i++) {
+        currentHub->SendAnalogRequest(i);
+    }
+
     // Then all the things that are not expect to change, but we want to keep
     // sending in case of reset.
     for (int i = 0; i < NUM_MOTORS_PER_HUB; i++) {

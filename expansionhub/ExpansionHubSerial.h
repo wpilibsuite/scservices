@@ -40,6 +40,7 @@ struct ExpansionHubSerial {
     std::optional<uint8_t> GetAddress() const { return address; }
 
     void SendBatteryRequest();
+    void SendAnalogRequest(uint8_t channel);
     void SendMotorCurrentRequest(uint8_t channel);
     void SendEncoderResetRequest(uint8_t channel);
     void SendServoConfiguration(uint8_t channel, uint16_t framePeriod);

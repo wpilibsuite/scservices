@@ -6,12 +6,14 @@
 
 #define NUM_MOTORS_PER_HUB 4
 #define NUM_SERVOS_PER_HUB 6
+#define NUM_ANALOG_INPUTS_PER_HUB 4
 
 namespace eh {
 
 struct ExpansionHubNtState {
     std::array<MotorNtState, NUM_MOTORS_PER_HUB> motors;
     std::array<ServoNtState, NUM_SERVOS_PER_HUB> servos;
+    std::array<wpi::nt::IntegerPublisher, NUM_ANALOG_INPUTS_PER_HUB> analogPublishers;
 
     double lastBattery{0};
 

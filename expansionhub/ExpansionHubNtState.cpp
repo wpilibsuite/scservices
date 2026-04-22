@@ -47,4 +47,12 @@ void ExpansionHubNtState::Initialize(const wpi::nt::NetworkTableInstance& instan
     numNacksPublisher =
         instance.GetIntegerTopic("/rhsp/" + busIdStr + "/numNacks")
             .Publish(options);
+
+    for (int i = 0; i < NUM_ANALOG_INPUTS_PER_HUB; i++) {
+        analogPublishers[i] =
+            instance
+                .GetIntegerTopic("/rhsp/" + busIdStr + "/analog" +
+                                 std::to_string(i))
+                .Publish(options);
+    }
 }
