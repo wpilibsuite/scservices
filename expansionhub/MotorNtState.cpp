@@ -105,8 +105,6 @@ void MotorNtState::Initialize(const wpi::nt::NetworkTableInstance& instance,
                              "/resetEncoder")
             .Subscribe(false, options);
 
-    velocityPid.Initialize(instance, motorNumStr, busIdStr, "velocity",
-                           options);
-    positionPid.Initialize(instance, motorNumStr, busIdStr, "position",
-                           options);
+    velocityPid.Initialize(instance, motorNumStr, busIdStr, options);
+    positionPid.Initialize(instance, motorNumStr, busIdStr, options);
 }

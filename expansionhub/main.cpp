@@ -397,7 +397,7 @@ int main() {
             }
         });
 
-        wpi::units::millisecond_t millis = eh::PidConstants::Period;
+        wpi::units::millisecond_t millis = eh::Period;
         uint64_t rawMillis = static_cast<uint64_t>(millis.value());
 
         sendTimer->Start(wpi::net::uv::Timer::Time{rawMillis},
