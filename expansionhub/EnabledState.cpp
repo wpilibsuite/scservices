@@ -6,7 +6,7 @@
 #include <chrono>
 #include <string.h>
 
-#define CONTROL_DATA_PATH "/sys/kernel/can_heartbeat/controldataro"
+#define CONTROL_DATA_PATH "/dev/mrccan/enabledro"
 
 namespace eh {
 
@@ -43,8 +43,6 @@ bool EnabledState::IsEnabled() const {
 
     unsigned int control_data = strtol(buf, NULL, 16);
 
-    bool system_watchdog = (control_data & 0x1) != 0 ? true : false;
-
-    return system_watchdog;
+    return control_data != 0;
 }
 }  // namespace eh
