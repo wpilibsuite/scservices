@@ -18,7 +18,7 @@ double PositionController::Compute(double setpoint, double measurement) {
     feedForward.SetKs(units::volt_t{sSubscriber.Get(0)});
 
     return (feedForward.Calculate(
-                units::meters_per_second_t{measurement - setpoint}) +
+                units::meters_per_second_t{setpoint - measurement}) +
             units::volt_t{pidController.Calculate(measurement, setpoint)})
         .value();
 }
