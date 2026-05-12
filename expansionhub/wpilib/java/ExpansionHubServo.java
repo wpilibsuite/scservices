@@ -1,12 +1,12 @@
 package frc.robot;
 
-import edu.wpi.first.math.MathUtil;
-import edu.wpi.first.networktables.BooleanPublisher;
-import edu.wpi.first.networktables.BooleanSubscriber;
-import edu.wpi.first.networktables.IntegerPublisher;
-import edu.wpi.first.networktables.NetworkTableInstance;
-import edu.wpi.first.networktables.PubSubOption;
-import edu.wpi.first.wpilibj.SystemServer;
+import org.wpilib.math.util.MathUtil;
+import org.wpilib.networktables.BooleanPublisher;
+import org.wpilib.networktables.BooleanSubscriber;
+import org.wpilib.networktables.IntegerPublisher;
+import org.wpilib.networktables.NetworkTableInstance;
+import org.wpilib.networktables.PubSubOption;
+import org.wpilib.system.SystemServer;
 
 public class ExpansionHubServo {
   private final IntegerPublisher pulseWidthPublisher;

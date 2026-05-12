@@ -102,6 +102,24 @@ class ExpansionHubPositionConstants:
             .publish(options)
         )
 
+        self.gLiftPublisher = (
+            systemServer
+            .getDoubleTopic("/rhsp/" + str(hubNumber) + "/motor" + str(motorNumber) + "/constants/position/kgLift")
+            .publish(options)
+        )
+
+        self.gArmPublisher = (
+            systemServer
+            .getDoubleTopic("/rhsp/" + str(hubNumber) + "/motor" + str(motorNumber) + "/constants/position/kgArm")
+            .publish(options)
+        )
+
+        self.gArmRatioPublisher = (
+            systemServer
+            .getDoubleTopic("/rhsp/" + str(hubNumber) + "/motor" + str(motorNumber) + "/constants/position/kgArmRatio")
+            .publish(options)
+        )
+
         self.continuousPublisher = (
             systemServer
             .getBooleanTopic("/rhsp/" + str(hubNumber) + "/motor" + str(motorNumber) + "/constants/position/continuous")
@@ -128,6 +146,20 @@ class ExpansionHubPositionConstants:
 
     def setS(self, s: float):
         self.sPublisher.set(s)
+        return self
+
+    def setGLift(self, gLift: float):
+        self.gLiftPublisher.set(gLift)
+        self.gArmPublisher.set(0)
+        return self
+
+    def setGArm(self, gArm: float):
+        self.gArmPublisher.set(gArm)
+        self.gLiftPublisher.set(0)
+        return self
+
+    def setGArmRatio(self, gArmRatio: float):
+        self.gArmRatioPublisher.set(gArmRatio)
         return self
 
     def enableContinuousInput(self, minimum: float, maximum: float):
@@ -195,8 +227,8 @@ class ExpansionHubMotor:
                 "/resetEncoder")
             .publish(options))
 
-        self.velocityPidConstants = ExpansionHubVelocityConstants(hubNumber, motorNumber)
-        self.positionPidConstants = ExpansionHubPositionConstants(hubNumber, motorNumber)
+        self.velocityConstants = ExpansionHubVelocityConstants(hubNumber, motorNumber)
+        self.positionConstants = ExpansionHubPositionConstants(hubNumber, motorNumber)
 
     def setPercentagePower(self, power: float):
         self.modePublisher.set(0)
@@ -242,10 +274,10 @@ class ExpansionHubMotor:
         self.resetEncoderPublisher.set(True)
 
     def getVelocityPidConstants(self) -> ExpansionHubVelocityConstants:
-        return self.velocityPidConstants
+        return self.velocityConstants
 
     def getPositionPidConstants(self) -> ExpansionHubPositionConstants:
-        return self.positionPidConstants
+        return self.positionConstants
 
 class ExpansionHubServo:
     def __init__(self, hubNumber: int, servoNumber: int):

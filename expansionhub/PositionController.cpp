@@ -1,5 +1,8 @@
 #include "PositionController.h"
 
+#include <cmath>
+#include <numbers>
+
 #include "wpi/nt/NetworkTableInstance.hpp"
 
 using namespace eh;
@@ -17,8 +20,19 @@ double PositionController::Compute(double setpoint, double measurement) {
 
     feedForward.SetKs(units::volt_t{sSubscriber.Get(0)});
 
+    const double gLift = gLiftSubscriber.Get(0);
+    const double gArm = gArmSubscriber.Get(0);
+    const double gArmRatio = gArmRatioSubscriber.Get(0);
+
+    double gravityCompensation = gLift;
+    if (gravityCompensation == 0 && gArm != 0) {
+        const double armAngleRadians = measurement * gArmRatio * 2.0 * std::numbers::pi;
+        gravityCompensation = gArm * std::cos(armAngleRadians);
+    }
+
     return (feedForward.Calculate(
                 units::meters_per_second_t{measurement - setpoint}) +
+            units::volt_t{gravityCompensation} +
             units::volt_t{pidController.Calculate(measurement, setpoint)})
         .value();
 }
@@ -63,4 +77,22 @@ void PositionController::Initialize(
             .GetDoubleTopic("/rhsp/" + busIdStr + "/motor" + motorNum +
                             "/constants/position/continuousMaximum")
             .Subscribe(false, options);
+
+    gLiftSubscriber =
+        instance
+            .GetDoubleTopic("/rhsp/" + busIdStr + "/motor" + motorNum +
+                            "/constants/position/kgLift")
+            .Subscribe(0, options);
+
+    gArmSubscriber =
+        instance
+            .GetDoubleTopic("/rhsp/" + busIdStr + "/motor" + motorNum +
+                            "/constants/position/kgArm")
+            .Subscribe(0, options);
+
+    gArmRatioSubscriber =
+        instance
+            .GetDoubleTopic("/rhsp/" + busIdStr + "/motor" + motorNum +
+                            "/constants/position/kgArmRatio")
+            .Subscribe(0, options);
 }
