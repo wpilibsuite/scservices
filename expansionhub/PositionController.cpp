@@ -23,10 +23,16 @@ double PositionController::Compute(double setpoint, double measurement) {
     const double gLift = gLiftSubscriber.Get(0);
     const double gArm = gArmSubscriber.Get(0);
     const double gArmRatio = gArmRatioSubscriber.Get(0);
+    constexpr double kGravityCompensationZeroTolerance = 1e-9;
 
+    // Precedence rule: kgLift wins when it is configured to a nonzero value.
+    // Only when kgLift is effectively zero do we fall back to arm-style
+    // gravity compensation based on kgArm and kgArmRatio.
     double gravityCompensation = gLift;
-    if (gravityCompensation == 0 && gArm != 0) {
-        const double armAngleRadians = measurement * gArmRatio * 2.0 * std::numbers::pi;
+    if (std::abs(gravityCompensation) <= kGravityCompensationZeroTolerance &&
+        std::abs(gArm) > kGravityCompensationZeroTolerance) {
+        const double armAngleRadians =
+            measurement * gArmRatio * 2.0 * std::numbers::pi;
         gravityCompensation = gArm * std::cos(armAngleRadians);
     }
 
