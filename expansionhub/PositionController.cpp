@@ -20,20 +20,20 @@ double PositionController::Compute(double setpoint, double measurement) {
 
     feedForward.SetKs(units::volt_t{sSubscriber.Get(0)});
 
-    const double gLift = gLiftSubscriber.Get(0);
-    const double gArm = gArmSubscriber.Get(0);
-    const double gArmRatio = gArmRatioSubscriber.Get(0);
+    const double gGain = gSubscriber.Get(0);
+    const double cosGain = cosSubscriber.Get(0);
+    const double cosRatio = cosRatioSubscriber.Get(0);
     constexpr double kGravityCompensationZeroTolerance = 1e-9;
 
-    // Precedence rule: kgLift wins when it is configured to a nonzero value.
-    // Only when kgLift is effectively zero do we fall back to arm-style
-    // gravity compensation based on kgArm and kgArmRatio.
-    double gravityCompensation = gLift;
+    // Precedence rule: g wins when it is configured to a nonzero value.
+    // Only when g is effectively zero do we fall back to arm-style
+    // gravity compensation based on cos and cosRatio.
+    double gravityCompensation = gGain;
     if (std::abs(gravityCompensation) <= kGravityCompensationZeroTolerance &&
-        std::abs(gArm) > kGravityCompensationZeroTolerance) {
+        std::abs(cosGain) > kGravityCompensationZeroTolerance) {
         const double armAngleRadians =
-            measurement * gArmRatio * 2.0 * std::numbers::pi;
-        gravityCompensation = gArm * std::cos(armAngleRadians);
+            measurement * cosRatio * 2.0 * std::numbers::pi;
+        gravityCompensation = cosGain * std::cos(armAngleRadians);
     }
 
     return (feedForward.Calculate(
@@ -84,21 +84,21 @@ void PositionController::Initialize(
                             "/constants/position/continuousMaximum")
             .Subscribe(false, options);
 
-    gLiftSubscriber =
+    gSubscriber =
         instance
             .GetDoubleTopic("/rhsp/" + busIdStr + "/motor" + motorNum +
-                            "/constants/position/kgLift")
+                            "/constants/position/kg")
             .Subscribe(0, options);
 
-    gArmSubscriber =
+    cosSubscriber =
         instance
             .GetDoubleTopic("/rhsp/" + busIdStr + "/motor" + motorNum +
-                            "/constants/position/kgArm")
+                            "/constants/position/kcos")
             .Subscribe(0, options);
 
-    gArmRatioSubscriber =
+    cosRatioSubscriber =
         instance
             .GetDoubleTopic("/rhsp/" + busIdStr + "/motor" + motorNum +
-                            "/constants/position/kgArmRatio")
+                            "/constants/position/kcosRatio")
             .Subscribe(0, options);
 }
