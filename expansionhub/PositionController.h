@@ -25,6 +25,10 @@ struct PositionController {
     wpi::nt::DoubleSubscriber continuousMinimumSubscriber;
     wpi::nt::DoubleSubscriber continuousMaximumSubscriber;
 
+    wpi::nt::DoubleSubscriber gSubscriber;
+    wpi::nt::DoubleSubscriber cosSubscriber;
+    wpi::nt::DoubleSubscriber cosRatioSubscriber;
+
     wpi::math::PIDController pidController{0, 0, 0, eh::Period};
     wpi::math::SimpleMotorFeedforward<wpi::units::meter> feedForward{eh::Ks, 0_V / 1_mps, 0_V / 1_mps_sq, eh::Period};
 
