@@ -30,6 +30,14 @@ jobs:
             builddir: buildmrc
             flags: "-DCMAKE_TOOLCHAIN_FILE=/usr/local/toolchain-config.cmake"
             preset: mrc
+          - os: ubuntu-24.04
+            name: Systemcore (system libraries)
+            need_toolchain: true
+            runtests: false
+            container: wpilib/ubuntu-base:24.04
+            builddir: buildmrc
+            flags: "-DCMAKE_TOOLCHAIN_FILE=$PWD/systemcore-toolchain.cmake -DUSE_SYSTEM_WPILIB=ON"
+            preset: mrc
 
     name: "Build - ${{ matrix.name }}"
     runs-on: ${{ matrix.os }}
@@ -43,12 +51,29 @@ jobs:
 
       # - name: Install sccache
       #   uses: mozilla-actions/sccache-action@v0.0.5
+      - name: Install systemcore toolchain
+        if: matrix.need_toolchain == true
+        run: |
+          sudo apt-get update && sudo apt-get install -y file
+          curl -fsSL https://github.com/LimelightVision/systemcore-os-public/releases/download/limelightosr-alpha-9-182/systemcore-aarch64-toolchain.tar.gz | tar -xzf - -C /opt
+          cd /opt/systemcore-aarch64-toolchain && ./relocate-sdk.sh
 
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
           submodules: 'recursive'
 
+      - name: Install wpilib into toolchain
+        if: matrix.need_toolchain == true
+        run: |
+          cp datalog-config.cmake.in allwpilib/datalog/datalog-config.cmake.in
+          cmake -S allwpilib -B wpilib-build -G Ninja -DCMAKE_TOOLCHAIN_FILE=$PWD/systemcore-toolchain.cmake -DCMAKE_INSTALL_PREFIX="/usr" -DCMAKE_BUILD_TYPE=Release -DWITH_TESTS=OFF -DWITH_CSCORE=OFF -DWITH_NTCORE=ON -DWITH_WPIMATH=ON -DWITH_WPILIB=OFF -DWITH_EXAMPLES=OFF -DWITH_GUI=OFF -DWITH_SIMULATION_MODULES=OFF -DWITH_BENCHMARK=OFF
+          cmake --build wpilib-build
+          echo;cat wpilib-build/datalog-config.cmake;echo
+          DESTDIR=/opt/systemcore-aarch64-toolchain/aarch64-buildroot-linux-gnu/sysroot cmake --install wpilib-build
+          # For some reason, when there's an existing installation, the way cmake installs export files deletes other things in the usr/share/foobar directories (like the foobar-config.cmake files it just installed) so do it again.
+          DESTDIR=/opt/systemcore-aarch64-toolchain/aarch64-buildroot-linux-gnu/sysroot cmake --install wpilib-build
+          rm -rf wpilib-build
       - name: configure
         run: cmake --preset ${{ matrix.preset }} ${{ matrix.flags }}
         # env:
