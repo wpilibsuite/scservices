@@ -321,7 +321,11 @@ void ExpansionHubSerial::SendPacket(uint8_t destAddr, uint8_t messageNumber, uin
         CalcChecksum(txBufferSpan.subspan(0, 10 + payload.size()));
 
     if (direct) {
-        write(serialFd, txBufferSpan.data(), txBufferSpan.size());
+        ssize_t written =
+            write(serialFd, txBufferSpan.data(), txBufferSpan.size());
+        if (written < 0) {
+            printf("Write error\n");
+        }
     } else {
         writeBuffer.insert(writeBuffer.end(), txBufferSpan.begin(),
                            txBufferSpan.end());
@@ -371,7 +375,10 @@ void ExpansionHubSerial::Flush() {
         return;
     }
 
-    write(serialFd, writeBuffer.data() + currentCount, count);
+    ssize_t written = write(serialFd, writeBuffer.data() + currentCount, count);
+    if (written < 0) {
+        printf("Write error\n");
+    }
     outstandingMessages += toWrite;
     currentCount += count;
 }
