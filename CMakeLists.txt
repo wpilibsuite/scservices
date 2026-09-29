@@ -97,19 +97,21 @@ add_subdirectory(powerdistribution)
 add_subdirectory(expansionhub)
 endif()
 
+include(GNUInstallDirs)
+
 if (MRC_BUILD)
 install(
     TARGETS RadioDaemon PowerDistributionDaemon ExpansionHubDaemon
-    RUNTIME DESTINATION bin
-    LIBRARY DESTINATION lib
-    ARCHIVE DESTINATION lib
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
 )
 
 else()
 install(
     TARGETS RadioDaemon
-    RUNTIME DESTINATION bin
-    LIBRARY DESTINATION lib
-    ARCHIVE DESTINATION lib
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
 )
 endif()
