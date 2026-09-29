@@ -77,16 +77,18 @@ set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS FALSE)
 
 Include(FetchContent)
 
-FetchContent_Declare(
-  Catch2
-  GIT_REPOSITORY https://github.com/catchorg/Catch2.git
-  GIT_TAG        v3.7.1 # or a later release
-)
+if (WITH_TESTS)
+    FetchContent_Declare(
+        Catch2
+        GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+        GIT_TAG        v3.7.1 # or a later release
+    )
+    FetchContent_MakeAvailable(Catch2)
 
-FetchContent_MakeAvailable(Catch2)
-list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
-include(CTest)
-include(Catch)
+    list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
+    include(CTest)
+    include(Catch)
+endif()
 
 add_subdirectory(common)
 
