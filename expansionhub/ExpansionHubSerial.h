@@ -79,7 +79,7 @@ struct ExpansionHubSerial {
     eh::ReceiveStateMachine stateMachine{
         [this](auto data, auto crc) { HandlePayload(data, crc); }};
 
-    uint64_t discoverStartTime{0};
+    uint64_t discoverStartTimeNs{0};
     std::optional<uint8_t> address{};
     std::optional<uint16_t> packetInterfaceId{};
 

@@ -48,8 +48,10 @@
 #include "EnabledState.h"
 #include "SystemDUsbMonitor.h"
 
+inline constexpr uint64_t TIMEOUT_NANOSECONDS = 1000000000;
+
 struct ExpansionHubState {
-    uint64_t lastLoop = wpi::util::Now();
+    uint64_t lastLoopNs = wpi::util::Now();
 
     int socketHandle{-1};
 
@@ -277,24 +279,24 @@ void ExpansionHubState::OnUpdate(bool canEnable) {
     }
 
     auto now = wpi::util::Now();
-    auto delta = now - lastLoop;
+    auto delta_ns = now - lastLoopNs;
 
     bool allowSend = currentHub->AllowSend();
 
-    if (!allowSend && delta < 1000000) {
+    if (!allowSend && delta_ns < TIMEOUT_NANOSECONDS) {
         printf("Skipping due to outstanding\n");
         ntStore.numMissedSendLoops++;
         ntStore.numMissedSendLoopsPublisher.Set(ntStore.numMissedSendLoops);
         return;
-    } else if (!allowSend && delta >= 1000000) {
+    } else if (!allowSend && delta_ns >= TIMEOUT_NANOSECONDS) {
         printf("1 second timeout. Attempting to recover\n");
         currentHub->Recover();
     }
 
-    lastLoop = now;
+    lastLoopNs = now;
 
-    if (delta > 23000) {
-        printf("Delta time %lu\n", delta);
+    if (delta_ns > 23000000) {
+        printf("Delta time %lu\n", delta_ns);
     }
 
     currentHub->StartTransaction(canEnable);

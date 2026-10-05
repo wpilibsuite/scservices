@@ -17,7 +17,7 @@
 #define BATTERY_ADC 13
 #define POWER_CONVERSION 32767
 
-#define MESSAGE_TIMEOUT 1000000
+#define MESSAGE_TIMEOUT_NANOSECONDS 1000000000
 
 using namespace eh;
 
@@ -122,28 +122,28 @@ void ExpansionHubSerial::SetCallbacks(std::function<void(bool, bool)> doOnSendCo
 
 void ExpansionHubSerial::RunDiscoverInternal() {
     auto now = wpi::util::Now();
-    auto delta = now - discoverStartTime;
+    auto delta_ns = now - discoverStartTimeNs;
 
     // Don't try again
-    if (delta <= MESSAGE_TIMEOUT) {
+    if (delta_ns <= MESSAGE_TIMEOUT_NANOSECONDS) {
         return;
     }
 
-    discoverStartTime = now;
+    discoverStartTimeNs = now;
 
     SendPacket(DISCOVER_ADDRESS, MESSAGE_DISCOVER, DISCOVER_ID, {}, true);
 }
 
 void ExpansionHubSerial::RunInterfacePacketIdInternal() {
     auto now = wpi::util::Now();
-    auto delta = now - discoverStartTime;
+    auto delta_ns = now - discoverStartTimeNs;
 
     // Don't try again
-    if (delta <= MESSAGE_TIMEOUT) {
+    if (delta_ns <= MESSAGE_TIMEOUT_NANOSECONDS) {
         return;
     }
 
-    discoverStartTime = now;
+    discoverStartTimeNs = now;
 
     std::string_view interfaceString = INTERFACE_STRING;
 
@@ -156,14 +156,14 @@ void ExpansionHubSerial::RunInterfacePacketIdInternal() {
 
 void ExpansionHubSerial::RunFtdiConfigureInternal() {
     auto now = wpi::util::Now();
-    auto delta = now - discoverStartTime;
+    auto delta_ns = now - discoverStartTimeNs;
 
     // Don't try again
-    if (delta <= MESSAGE_TIMEOUT) {
+    if (delta_ns <= MESSAGE_TIMEOUT_NANOSECONDS) {
         return;
     }
 
-    discoverStartTime = now;
+    discoverStartTimeNs = now;
     uint16_t packetId = *packetInterfaceId + 49;
     uint8_t buffer[1] = {1};
 
@@ -393,8 +393,8 @@ void ExpansionHubSerial::CheckForStateAdvance(MessageNumbers messageNumber, size
             printf("Commands did not occur this loop\n");
         }
         // Done ready to send
-        auto delta = wpi::util::Now() - lastLoop;
-        ntStore->transactionTimePublisher.Set(delta);
+        auto delta_ns = wpi::util::Now() - lastLoop;
+        ntStore->transactionTimePublisher.Set(delta_ns);
         sendState = SendState::ReadyToSend;
     }
 }
@@ -440,20 +440,20 @@ void ExpansionHubSerial::HandlePayload(std::span<const uint8_t> data, uint8_t cr
     if (PacketIsDiscover(packetId)) {
         if (!address.has_value() && payload[0] == 1) {
             address = PacketSourceAddress(data);
-            discoverStartTime = 0;
+            discoverStartTimeNs = 0;
             RunSynchronousSteps();
         }
         return;
     } else if (PacketIsAck(packetId) &&
                packetReferenceNumber == MESSAGE_FTDI_RESET_CONTROL) {
         configuredFtdiReset = true;
-        discoverStartTime = 0;
+        discoverStartTimeNs = 0;
         RunSynchronousSteps();
         return;
     } else if (PacketIsQueryInterface(packetId)) {
         if (!packetInterfaceId.has_value()) {
             packetInterfaceId = ReadUint16(payload);
-            discoverStartTime = 0;
+            discoverStartTimeNs = 0;
             RunSynchronousSteps();
         }
         return;
